@@ -1,0 +1,508 @@
+import * as React from "react";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { useQuery } from "@tanstack/react-query";
+import { useFieldArray, useForm } from "react-hook-form";
+import { z } from "zod";
+import { Camera, Pencil, Plus, Trash2 } from "lucide-react";
+
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import {
+  Form,
+  FormControl,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+} from "@/components/ui/form";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  diasDaSemana,
+  todosOsDias,
+  turnos,
+  useGCheck,
+  type Checklist,
+} from "@/lib/g-check-store";
+import { fetchProfiles, PROFILES_QUERY_KEY } from "@/lib/profiles";
+import { fetchSetores, SETORES_QUERY_KEY } from "@/lib/setores";
+import { cn } from "@/lib/utils";
+
+const itemSchema = z.object({
+  itemId: z.string().optional(),
+  titulo: z.string().trim().min(1, "Informe o título do item."),
+  detalhe: z.string().trim().optional(),
+  responsavel: z.string().trim().min(1, "Informe o responsável."),
+  exigeFoto: z.boolean(),
+});
+
+const checklistSchema = z
+  .object({
+    nome: z.string().trim().min(1, "Informe o nome da checklist."),
+    setor: z.string().trim().min(1, "Informe o setor."),
+    turno: z.enum(turnos, { message: "Selecione o turno." }),
+    horario: z.string().trim().min(1, "Informe o horário."),
+    tempoLimite: z.string().trim(),
+    diasSemana: z.array(z.number()).min(1, "Selecione ao menos um dia da semana."),
+    ativo: z.boolean(),
+    itens: z.array(itemSchema).min(1, "Adicione ao menos um item."),
+  })
+  .refine((v) => !v.tempoLimite || !v.horario || v.tempoLimite >= v.horario, {
+    message: "O tempo limite deve ser igual ou depois do horário de início.",
+    path: ["tempoLimite"],
+  });
+
+type ChecklistFormValues = z.infer<typeof checklistSchema>;
+
+const itemVazio = { titulo: "", detalhe: "", responsavel: "", exigeFoto: false };
+
+function turnoOuPadrao(turno: string): (typeof turnos)[number] {
+  return (turnos as readonly string[]).includes(turno)
+    ? (turno as (typeof turnos)[number])
+    : turnos[0];
+}
+
+function valoresPadrao(checklist?: Checklist): ChecklistFormValues {
+  if (!checklist) {
+    return {
+      nome: "",
+      setor: "",
+      turno: turnos[0],
+      horario: "",
+      tempoLimite: "",
+      diasSemana: [...todosOsDias],
+      ativo: true,
+      itens: [itemVazio],
+    };
+  }
+  return {
+    nome: checklist.nome,
+    setor: checklist.setor,
+    turno: turnoOuPadrao(checklist.turno),
+    horario: checklist.horario,
+    tempoLimite: checklist.tempoLimite ?? "",
+    diasSemana:
+      checklist.diasSemana.length > 0 ? [...checklist.diasSemana] : [...todosOsDias],
+    ativo: checklist.ativo,
+    itens: checklist.itens.map((i) => ({
+      itemId: i.id,
+      titulo: i.titulo,
+      detalhe: i.detalhe ?? "",
+      responsavel: i.responsavel,
+      exigeFoto: i.exigeFoto,
+    })),
+  };
+}
+
+function ChecklistFormDialog({ checklist }: { checklist?: Checklist }) {
+  const { criarChecklist, editarChecklist } = useGCheck();
+  const [open, setOpen] = React.useState(false);
+  const editando = !!checklist;
+
+  const form = useForm<ChecklistFormValues>({
+    resolver: zodResolver(checklistSchema),
+    defaultValues: valoresPadrao(checklist),
+  });
+
+  const { fields, append, remove } = useFieldArray({
+    control: form.control,
+    name: "itens",
+  });
+
+  const { data: funcionarios = [] } = useQuery({
+    queryKey: PROFILES_QUERY_KEY,
+    queryFn: fetchProfiles,
+    enabled: open,
+  });
+  const nomesFuncionarios = Array.from(new Set(funcionarios.map((f) => f.nome)));
+
+  const { data: setores = [] } = useQuery({
+    queryKey: SETORES_QUERY_KEY,
+    queryFn: fetchSetores,
+    enabled: open,
+  });
+  const nomesSetores = Array.from(new Set(setores.map((s) => s.nome)));
+
+  function onOpenChange(next: boolean) {
+    setOpen(next);
+    form.reset(valoresPadrao(checklist));
+  }
+
+  function onSubmit(values: ChecklistFormValues) {
+    // "itemId" só existe em itens que vieram de uma checklist existente
+    // (setado em valoresPadrao); itens adicionados no formulário não têm.
+    // O store (editarChecklist) usa essa presença/ausência para decidir se
+    // preserva o status do item ou o cria do zero — ver g-check-store.tsx.
+    const itens = values.itens.map((i) => {
+      const detalhe = i.detalhe?.trim();
+      return {
+        ...(i.itemId ? { id: i.itemId } : {}),
+        titulo: i.titulo,
+        responsavel: i.responsavel,
+        exigeFoto: i.exigeFoto,
+        ...(detalhe ? { detalhe } : {}),
+      };
+    });
+
+    const dados = {
+      nome: values.nome,
+      setor: values.setor,
+      turno: values.turno,
+      horario: values.horario,
+      ativo: values.ativo,
+      diasSemana: [...values.diasSemana].sort((a, b) => a - b),
+      ...(values.tempoLimite.trim() ? { tempoLimite: values.tempoLimite.trim() } : {}),
+      itens,
+    };
+    if (editando && checklist) {
+      editarChecklist(checklist.id, dados);
+    } else {
+      criarChecklist(dados);
+    }
+    onOpenChange(false);
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogTrigger asChild>
+        {editando ? (
+          <Button
+            type="button"
+            size="icon"
+            variant="ghost"
+            className="size-8 shrink-0 text-muted-foreground hover:text-foreground"
+            aria-label={`Editar ${checklist.nome}`}
+          >
+            <Pencil className="size-4" />
+          </Button>
+        ) : (
+          <Button size="sm">
+            <Plus className="size-4" /> Nova checklist
+          </Button>
+        )}
+      </DialogTrigger>
+      <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-xl">
+        <DialogHeader>
+          <DialogTitle>{editando ? "Editar checklist" : "Nova checklist"}</DialogTitle>
+        </DialogHeader>
+
+        <Form {...form}>
+          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-5">
+            <div className="grid gap-4 sm:grid-cols-2">
+              <FormField
+                control={form.control}
+                name="nome"
+                render={({ field }) => (
+                  <FormItem className="sm:col-span-2">
+                    <FormLabel>Nome da checklist</FormLabel>
+                    <FormControl>
+                      <Input placeholder="Ex.: Inventário de bebidas" {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name="setor"
+                render={({ field }) => {
+                  // Só dá pra escolher um setor cadastrado; se a checklist já
+                  // tinha um setor que foi removido depois, ele entra na lista
+                  // como opção extra para não sumir ao editar.
+                  const opcoes =
+                    field.value && !nomesSetores.includes(field.value)
+                      ? [field.value, ...nomesSetores]
+                      : nomesSetores;
+                  return (
+                    <FormItem>
+                      <FormLabel>Setor</FormLabel>
+                      <Select value={field.value} onValueChange={field.onChange}>
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Selecione um setor" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          {opcoes.length === 0 && (
+                            <p className="px-2 py-1.5 text-sm text-muted-foreground">
+                              Nenhum setor cadastrado
+                            </p>
+                          )}
+                          {opcoes.map((nome) => (
+                            <SelectItem key={nome} value={nome}>
+                              {nome}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  );
+                }}
+              />
+              <FormField
+                control={form.control}
+                name="turno"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Turno</FormLabel>
+                    <Select value={field.value} onValueChange={field.onChange}>
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Selecione" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        {turnos.map((t) => (
+                          <SelectItem key={t} value={t}>
+                            {t}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name="horario"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Horário</FormLabel>
+                    <FormControl>
+                      <Input type="time" {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name="tempoLimite"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Tempo limite (opcional)</FormLabel>
+                    <FormControl>
+                      <Input type="time" {...field} />
+                    </FormControl>
+                    <p className="text-xs text-muted-foreground">
+                      Passou daqui sem concluir, a rotina fica “Atrasada”.
+                    </p>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name="diasSemana"
+                render={({ field }) => (
+                  <FormItem className="sm:col-span-2">
+                    <FormLabel>Dias da semana</FormLabel>
+                    <FormControl>
+                      <div className="flex flex-wrap gap-2">
+                        {diasDaSemana.map((dia) => {
+                          const selecionado = field.value.includes(dia.valor);
+                          return (
+                            <button
+                              key={dia.valor}
+                              type="button"
+                              onClick={() =>
+                                field.onChange(
+                                  selecionado
+                                    ? field.value.filter((v: number) => v !== dia.valor)
+                                    : [...field.value, dia.valor].sort((a, b) => a - b),
+                                )
+                              }
+                              aria-pressed={selecionado}
+                              aria-label={dia.nome}
+                              title={dia.nome}
+                              className={cn(
+                                "flex size-9 items-center justify-center rounded-full border text-sm font-medium transition-colors",
+                                selecionado
+                                  ? "border-primary bg-primary text-primary-foreground"
+                                  : "border-input text-muted-foreground hover:border-primary hover:text-foreground",
+                              )}
+                            >
+                              {dia.inicial}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name="ativo"
+                render={({ field }) => (
+                  <FormItem className="flex flex-row items-center justify-between rounded-xl border border-border p-3 sm:col-span-2">
+                    <div className="space-y-0.5">
+                      <FormLabel>Rotina ativa</FormLabel>
+                      <p className="text-xs text-muted-foreground">
+                        Rotinas inativas saem do dashboard e da visão dos funcionários.
+                      </p>
+                    </div>
+                    <FormControl>
+                      <Switch checked={field.value} onCheckedChange={field.onChange} />
+                    </FormControl>
+                  </FormItem>
+                )}
+              />
+            </div>
+
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <Label>Itens da checklist</Label>
+                <Button type="button" size="sm" variant="outline" onClick={() => append(itemVazio)}>
+                  <Plus className="size-4" /> Adicionar item
+                </Button>
+              </div>
+
+              {form.formState.errors.itens?.message && (
+                <p className="text-[0.8rem] font-medium text-destructive">
+                  {form.formState.errors.itens.message}
+                </p>
+              )}
+
+              <div className="space-y-4">
+                {fields.map((f, index) => (
+                  <div key={f.id} className="space-y-3 rounded-xl border border-border p-3">
+                    <div className="flex items-start justify-between gap-2">
+                      <p className="text-xs font-medium text-muted-foreground">Item {index + 1}</p>
+                      <Button
+                        type="button"
+                        size="icon"
+                        variant="ghost"
+                        className="size-6 text-muted-foreground hover:text-destructive"
+                        onClick={() => remove(index)}
+                        disabled={fields.length === 1}
+                        aria-label={`Remover item ${index + 1}`}
+                      >
+                        <Trash2 className="size-3.5" />
+                      </Button>
+                    </div>
+                    <FormField
+                      control={form.control}
+                      name={`itens.${index}.titulo`}
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Título</FormLabel>
+                          <FormControl>
+                            <Input placeholder="Ex.: Conferir contagem de estoque" {...field} />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    <FormField
+                      control={form.control}
+                      name={`itens.${index}.detalhe`}
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Detalhe (opcional)</FormLabel>
+                          <FormControl>
+                            <Textarea rows={2} placeholder="Instruções adicionais" {...field} />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    <FormField
+                      control={form.control}
+                      name={`itens.${index}.responsavel`}
+                      render={({ field }) => {
+                        const opcoes =
+                          field.value && !nomesFuncionarios.includes(field.value)
+                            ? [field.value, ...nomesFuncionarios]
+                            : nomesFuncionarios;
+                        return (
+                          <FormItem>
+                            <FormLabel>Responsável</FormLabel>
+                            <Select value={field.value} onValueChange={field.onChange}>
+                              <FormControl>
+                                <SelectTrigger>
+                                  <SelectValue placeholder="Selecione um funcionário" />
+                                </SelectTrigger>
+                              </FormControl>
+                              <SelectContent>
+                                {opcoes.length === 0 && (
+                                  <p className="px-2 py-1.5 text-sm text-muted-foreground">
+                                    Nenhum funcionário cadastrado
+                                  </p>
+                                )}
+                                {opcoes.map((nome) => (
+                                  <SelectItem key={nome} value={nome}>
+                                    {nome}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                            <FormMessage />
+                          </FormItem>
+                        );
+                      }}
+                    />
+                    <FormField
+                      control={form.control}
+                      name={`itens.${index}.exigeFoto`}
+                      render={({ field }) => (
+                        <FormItem className="flex flex-row items-center justify-between gap-3 rounded-lg border border-border p-3">
+                          <div className="space-y-0.5">
+                            <FormLabel className="flex items-center gap-1.5">
+                              <Camera className="size-3.5" />
+                              Exigir foto para concluir
+                            </FormLabel>
+                            <p className="text-xs text-muted-foreground">
+                              O responsável precisa anexar uma foto antes de marcar esta tarefa.
+                            </p>
+                          </div>
+                          <FormControl>
+                            <Switch checked={field.value} onCheckedChange={field.onChange} />
+                          </FormControl>
+                        </FormItem>
+                      )}
+                    />
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+                Cancelar
+              </Button>
+              <Button type="submit">{editando ? "Salvar alterações" : "Criar checklist"}</Button>
+            </DialogFooter>
+          </form>
+        </Form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+export function NovaChecklistDialog() {
+  return <ChecklistFormDialog />;
+}
+
+export function EditarChecklistDialog({ checklist }: { checklist: Checklist }) {
+  return <ChecklistFormDialog checklist={checklist} />;
+}
