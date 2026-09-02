@@ -1,6 +1,6 @@
 # G-Check-Felix
 
-Versão do **G-Check** personalizada para o cliente **Felix Supermercado**.
+Versão do **G-Check** personalizada para o cliente **Supermercado Felix**.
 
 G-Check é um app web de rotinas e checklists operacionais para supermercados:
 Dashboard com visão de pendências, checklists concluídos e taxa de execução,
