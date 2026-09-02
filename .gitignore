@@ -32,3 +32,6 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Lockfile do npm (fallback local); o lockfile canônico é bun.lock
+package-lock.json

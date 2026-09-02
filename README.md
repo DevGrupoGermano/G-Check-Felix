@@ -16,12 +16,13 @@ validade, limpeza e fechamento) com abertura/conclusão de itens.
 
 ## Desenvolvimento
 
-Requer [Bun](https://bun.sh) instalado.
-
 ```sh
-bun install
-bun run dev
+bun install   # ou: npm install
+bun run dev   # ou: npm run dev
 ```
+
+O app sobe em **http://localhost:3100** (host e porta fixos no `vite.config.ts`,
+dev e preview). A porta é 3100 para não colidir com outros projetos locais.
 
 Outros scripts:
 
@@ -32,11 +33,30 @@ Outros scripts:
 | `bun run lint`     | ESLint                           |
 | `bun run format`   | Prettier                         |
 
+> Em pasta sincronizada pelo OneDrive o `bun install` pode não materializar o
+> `node_modules` (bug conhecido). Se acontecer, use `npm install`
+> (`package-lock.json` fica fora do Git; o lockfile canônico é o `bun.lock`).
+
 ## Banco de dados
 
-O setup completo está em `supabase/full_setup.sql` e as alterações
-incrementais em `supabase/migrations/`.
+Migration única de baseline em `supabase/migrations/20260902120000_init.sql`:
+cria todo o schema (tabelas, funções, triggers, RLS, storage bucket) e o único
+login inicial `admin@mercadofelix.com` / `Admin@2026` (papel admin). O banco
+começa sem dados de demonstração.
+
+Projeto novo (vazio): rode esse arquivo uma vez no SQL Editor do Supabase, ou
+`supabase db push` com o CLI. Os demais funcionários são cadastrados pelo app,
+logado como admin, na tela de Funcionários.
+
+`supabase/full_setup.sql` é material antigo do G-Check e não deve ser usado
+neste projeto.
 
 ## Configuração
 
-Crie um arquivo `.env` com as variáveis do Supabase (URL e chave anon).
+Crie um arquivo `.env` na raiz (já no `.gitignore`):
+
+```
+VITE_SUPABASE_URL=...
+VITE_SUPABASE_ANON_KEY=...
+SUPABASE_SERVICE_ROLE_KEY=...
+```

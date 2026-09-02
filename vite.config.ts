@@ -45,10 +45,26 @@ function serverEnvFromDotenv(): Plugin {
   };
 }
 
+// Host/porta fixos para rodar sempre em http://localhost:3100 (dev e preview).
+// Sobrescreve a detecção de sandbox do preset do Lovable quando roda localmente.
+// 3100 (e não 3000) para não colidir com outros projetos locais.
+const HOST = "localhost";
+const PORT = 3100;
+
 export default defineConfig({
   plugins: [serverEnvFromDotenv()],
   vite: {
     customLogger: logger,
+    server: {
+      host: HOST,
+      port: PORT,
+      strictPort: true,
+    },
+    preview: {
+      host: HOST,
+      port: PORT,
+      strictPort: true,
+    },
   },
   tanstackStart: {
     // Redirect TanStack Start's bundled server entry to src/server.ts (our SSR error wrapper).
