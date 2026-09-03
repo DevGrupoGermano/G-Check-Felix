@@ -66,70 +66,71 @@
 }
 
 /*
- * Tema escuro fixo.
- * - Fundo: preto (--background)
- * - Caixas / listas / cards / nav / header: cinza (--card, --secondary,
- *   --muted, --sidebar, --popover)
- * - Acento (antes verde): azul meio roxo, hue 270 (--primary, --ring,
- *   --sidebar-primary)
+ * Tema claro (cliente Supermercado Felix).
+ * - main / fundo geral: branco (--background)
+ * - sidebar: vermelho (--sidebar) com texto branco
+ * - header: amarelo — não é token, fica fixo no app-shell (#FFDA24)
+ * - cards / caixas / listas: branco sobre cinza bem claro (--card, --muted,
+ *   --secondary, --accent, --popover)
+ * - acento / botões primários: vermelho da marca, hue 27 (--primary, --ring)
  * Os neutros usam hue 285 com croma quase zero = cinza com leve tom frio.
- * :root e .dark carregam os mesmos valores para o app ser sempre escuro.
+ * :root e .dark carregam os mesmos valores (o app não alterna tema).
  */
 :root,
 .dark {
   --radius: 0.625rem;
 
-  --background: oklch(0.135 0.005 285);
-  --foreground: oklch(0.97 0.004 285);
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.21 0.006 285);
 
-  --card: oklch(0.25 0.006 285);
-  --card-foreground: oklch(0.97 0.004 285);
-  --popover: oklch(0.265 0.006 285);
-  --popover-foreground: oklch(0.97 0.004 285);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.21 0.006 285);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.21 0.006 285);
 
-  --primary: oklch(0.45 0.185 270);
-  --primary-foreground: oklch(0.985 0.01 270);
+  --primary: oklch(0.505 0.196 27);
+  --primary-foreground: oklch(0.985 0 0);
 
-  --secondary: oklch(0.315 0.006 285);
-  --secondary-foreground: oklch(0.97 0.004 285);
-  --muted: oklch(0.3 0.006 285);
-  --muted-foreground: oklch(0.72 0.01 285);
-  --accent: oklch(0.345 0.008 285);
-  --accent-foreground: oklch(0.97 0.004 285);
+  --secondary: oklch(0.967 0.001 286);
+  --secondary-foreground: oklch(0.21 0.006 285);
+  --muted: oklch(0.967 0.001 286);
+  --muted-foreground: oklch(0.552 0.016 285);
+  --accent: oklch(0.967 0.001 286);
+  --accent-foreground: oklch(0.21 0.006 285);
 
-  --destructive: oklch(0.62 0.22 25);
-  --destructive-foreground: oklch(0.985 0.003 285);
+  --destructive: oklch(0.577 0.245 27);
+  --destructive-foreground: oklch(0.985 0 0);
 
   /* Estados do histórico de rotinas: verde = concluída, azul = hoje/andamento
      (cinza = agendada usa --muted; vermelho = incompleta usa --destructive). */
-  --success: oklch(0.62 0.14 155);
-  --success-foreground: oklch(0.985 0.02 155);
-  --info: oklch(0.62 0.15 245);
-  --info-foreground: oklch(0.985 0.01 245);
+  --success: oklch(0.63 0.17 149);
+  --success-foreground: oklch(0.985 0 0);
+  --info: oklch(0.58 0.16 245);
+  --info-foreground: oklch(0.985 0 0);
 
-  --border: oklch(1 0 0 / 12%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.45 0.185 270);
+  --border: oklch(0.92 0.004 286);
+  --input: oklch(0.92 0.004 286);
+  --ring: oklch(0.505 0.196 27);
 
-  --chart-1: oklch(0.45 0.185 270);
-  --chart-2: oklch(0.62 0.15 245);
+  --chart-1: oklch(0.505 0.196 27);
+  --chart-2: oklch(0.58 0.16 245);
   --chart-3: oklch(0.7 0.13 290);
   --chart-4: oklch(0.78 0.16 75);
   --chart-5: oklch(0.65 0.2 15);
 
-  --sidebar: oklch(0.24 0.006 285);
-  --sidebar-foreground: oklch(0.97 0.004 285);
-  --sidebar-primary: oklch(0.45 0.185 270);
-  --sidebar-primary-foreground: oklch(0.985 0.01 270);
-  --sidebar-accent: oklch(0.345 0.008 285);
-  --sidebar-accent-foreground: oklch(0.97 0.004 285);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.45 0.185 270);
+  --sidebar: oklch(0.505 0.196 27);
+  --sidebar-foreground: oklch(0.985 0 0);
+  --sidebar-primary: oklch(0.985 0 0);
+  --sidebar-primary-foreground: oklch(0.505 0.196 27);
+  --sidebar-accent: oklch(1 0 0 / 12%);
+  --sidebar-accent-foreground: oklch(0.985 0 0);
+  --sidebar-border: oklch(1 0 0 / 18%);
+  --sidebar-ring: oklch(0.985 0 0);
 }
 
 @layer base {
   :root {
-    color-scheme: dark;
+    color-scheme: light;
   }
 
   * {

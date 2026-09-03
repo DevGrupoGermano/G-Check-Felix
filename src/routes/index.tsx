@@ -100,7 +100,7 @@ function Metric({
   value: string;
   hint: string;
   icon: typeof Clock;
-  tone: "primary" | "success" | "warn" | "danger" | "neutral";
+  tone: "primary" | "success" | "warn" | "danger" | "neutral" | "info";
   /** Se informado, o card vira um link para /checklists já com esse filtro. */
   search?: ChecklistSearch | undefined;
 }) {
@@ -117,6 +117,7 @@ function Metric({
             tone === "warn" && "bg-chart-4/20 text-chart-4",
             tone === "danger" && "bg-destructive/15 text-destructive",
             tone === "neutral" && "bg-muted text-muted-foreground",
+            tone === "info" && "bg-info/15 text-info",
           )}
         >
           <Icon className="size-4.5" />
@@ -705,7 +706,7 @@ function Dashboard() {
             value={`${taxa}%`}
             hint={`${taxaBase.feitos} de ${taxaBase.itens} itens`}
             icon={TrendingUp}
-            tone="primary"
+            tone="info"
           />
           <Metric
             label="Rotinas de hoje"
