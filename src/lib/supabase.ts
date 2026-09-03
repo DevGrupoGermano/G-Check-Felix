@@ -31,6 +31,10 @@ export interface ChecklistRow {
   ativo: boolean;
   /** "HH:MM:SS" ou null — horário limite para concluir a rotina. */
   tempo_limite: string | null;
+  /** Reabre os itens sozinha ao longo do dia (ex.: giro da Segurança a cada 20 min). */
+  reabre_automatico: boolean;
+  /** Intervalo em minutos entre as reaberturas — usado quando reabre_automatico. */
+  reabre_intervalo_min: number | null;
 }
 
 /** Modo de recorrência de uma atividade (item). */

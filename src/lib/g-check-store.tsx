@@ -11,7 +11,7 @@ import {
 import { dataDoIso } from "@/lib/utils";
 import { itemRodaNoDia, recorrencias, type Recorrencia } from "@/lib/recorrencia";
 import { useAuth } from "@/lib/auth-store";
-import { HISTORICO_QUERY_KEY, rolloverPendente } from "@/lib/historico";
+import { HISTORICO_QUERY_KEY, reabrirAutomaticas, rolloverPendente } from "@/lib/historico";
 
 export { itemRodaNoDia, recorrencias, type Recorrencia };
 
@@ -115,6 +115,10 @@ export interface Checklist {
   nome: string;
   setor: string;
   ativo: boolean;
+  /** Reabre os itens sozinha ao longo do dia (giro da Segurança etc.). */
+  reabreAutomatico: boolean;
+  /** Minutos entre as reaberturas — só usado quando reabreAutomatico. */
+  reabreIntervaloMin?: number;
   /** Turnos que a rotina cobre — derivado dos itens, não gravado. */
   turnos: string[];
   /** Faixa de horário derivada dos itens ("HH:MM"), só para descrição. */
@@ -151,6 +155,8 @@ export interface ChecklistInput {
   ativo: boolean;
   /** "HH:MM" ou undefined. */
   tempoLimite?: string;
+  reabreAutomatico: boolean;
+  reabreIntervaloMin?: number;
   itens: ItemInput[];
 }
 
@@ -253,6 +259,10 @@ async function fetchChecklists(): Promise<Checklist[]> {
         nome: row.nome,
         setor: row.setor,
         ativo: row.ativo,
+        reabreAutomatico: row.reabre_automatico ?? false,
+        ...(row.reabre_intervalo_min
+          ? { reabreIntervaloMin: row.reabre_intervalo_min }
+          : {}),
         ...descricaoAgenda(itens),
         ...(row.tempo_limite ? { tempoLimite: row.tempo_limite.slice(0, 5) } : {}),
         itens,
@@ -312,6 +322,29 @@ export function GCheckProvider({ children }: { children: React.ReactNode }) {
     };
     rodar();
     const id = window.setInterval(rodar, 15 * 60 * 1000);
+    return () => {
+      vivo = false;
+      window.clearInterval(id);
+    };
+  }, [session, queryClient]);
+
+  // Reabertura automática (giro da Segurança etc.): o pg_cron roda a cada minuto;
+  // aqui o client cobre a mesma janela para a tela de quem está com o app aberto.
+  React.useEffect(() => {
+    if (!session) return;
+    let vivo = true;
+    const rodar = () => {
+      reabrirAutomaticas()
+        .then(() => {
+          if (!vivo) return;
+          queryClient.invalidateQueries({ queryKey: QUERY_KEY });
+        })
+        .catch(() => {
+          /* silencioso: o pg_cron cobre o caminho normal */
+        });
+    };
+    rodar();
+    const id = window.setInterval(rodar, 60 * 1000);
     return () => {
       vivo = false;
       window.clearInterval(id);
@@ -648,6 +681,10 @@ export function GCheckProvider({ children }: { children: React.ReactNode }) {
         setor: input.setor,
         ativo: input.ativo,
         tempo_limite: input.tempoLimite ?? null,
+        reabre_automatico: input.reabreAutomatico,
+        reabre_intervalo_min: input.reabreAutomatico
+          ? (input.reabreIntervaloMin ?? null)
+          : null,
       });
       if (checklistError) throw checklistError;
 
@@ -724,6 +761,10 @@ export function GCheckProvider({ children }: { children: React.ReactNode }) {
           setor: input.setor,
           ativo: input.ativo,
           tempo_limite: input.tempoLimite ?? null,
+          reabre_automatico: input.reabreAutomatico,
+          reabre_intervalo_min: input.reabreAutomatico
+            ? (input.reabreIntervaloMin ?? null)
+            : null,
         })
         .eq("id", checklistId);
       if (checklistError) throw checklistError;

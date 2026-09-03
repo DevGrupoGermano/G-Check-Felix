@@ -177,6 +177,8 @@ function checklistDeSnapshot(e: ChecklistExecucaoRow, vivo: Checklist | undefine
     nome: e.nome,
     setor: e.setor,
     ativo: vivo?.ativo ?? true,
+    reabreAutomatico: vivo?.reabreAutomatico ?? false,
+    ...(vivo?.reabreIntervaloMin ? { reabreIntervaloMin: vivo.reabreIntervaloMin } : {}),
     ...descricaoAgenda(itens),
     itens,
   };
@@ -855,6 +857,11 @@ function ChecklistCard({
                   <CalendarDays className="size-3.5" />{" "}
                   {c.itens.length} {c.itens.length === 1 ? "atividade" : "atividades"}
                 </span>
+                {c.reabreAutomatico && c.reabreIntervaloMin && (
+                  <span className="inline-flex items-center gap-1">
+                    <RotateCcw className="size-3.5" /> reabre a cada {c.reabreIntervaloMin} min
+                  </span>
+                )}
               </p>
             </div>
             <div className="flex shrink-0 items-center gap-2">

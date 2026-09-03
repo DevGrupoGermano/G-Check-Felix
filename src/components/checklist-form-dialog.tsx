@@ -111,13 +111,29 @@ const itemSchema = z
     }
   });
 
-const checklistSchema = z.object({
-  nome: z.string().trim().min(1, "Informe o nome da checklist."),
-  setor: z.string().trim().min(1, "Informe o setor."),
-  tempoLimite: z.string().trim(),
-  ativo: z.boolean(),
-  itens: z.array(itemSchema).min(1, "Adicione ao menos um item."),
-});
+const checklistSchema = z
+  .object({
+    nome: z.string().trim().min(1, "Informe o nome da checklist."),
+    setor: z.string().trim().min(1, "Informe o setor."),
+    tempoLimite: z.string().trim(),
+    ativo: z.boolean(),
+    reabreAutomatico: z.boolean(),
+    reabreIntervaloMin: z.coerce
+      .number()
+      .int("Use um número inteiro.")
+      .min(1, "Mínimo de 1 minuto.")
+      .max(1440, "No máximo 1440 minutos (24 h)."),
+    itens: z.array(itemSchema).min(1, "Adicione ao menos um item."),
+  })
+  .superRefine((v, ctx) => {
+    if (v.reabreAutomatico && (!v.reabreIntervaloMin || v.reabreIntervaloMin < 1)) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["reabreIntervaloMin"],
+        message: "Informe de quantos em quantos minutos a rotina reabre.",
+      });
+    }
+  });
 
 type ChecklistFormValues = z.infer<typeof checklistSchema>;
 
@@ -143,6 +159,8 @@ function valoresPadrao(checklist?: Checklist): ChecklistFormValues {
       setor: "",
       tempoLimite: "",
       ativo: true,
+      reabreAutomatico: false,
+      reabreIntervaloMin: 20,
       itens: [itemVazio],
     };
   }
@@ -151,6 +169,8 @@ function valoresPadrao(checklist?: Checklist): ChecklistFormValues {
     setor: checklist.setor,
     tempoLimite: checklist.tempoLimite ?? "",
     ativo: checklist.ativo,
+    reabreAutomatico: checklist.reabreAutomatico,
+    reabreIntervaloMin: checklist.reabreIntervaloMin ?? 20,
     itens: checklist.itens.map((i) => ({
       itemId: i.id,
       titulo: i.titulo,
@@ -244,6 +264,8 @@ function ChecklistFormDialog({ checklist }: { checklist?: Checklist }) {
       nome: values.nome,
       setor: values.setor,
       ativo: values.ativo,
+      reabreAutomatico: values.reabreAutomatico,
+      ...(values.reabreAutomatico ? { reabreIntervaloMin: values.reabreIntervaloMin } : {}),
       ...(values.tempoLimite.trim() ? { tempoLimite: values.tempoLimite.trim() } : {}),
       itens,
     };
@@ -378,6 +400,57 @@ function ChecklistFormDialog({ checklist }: { checklist?: Checklist }) {
                     <FormControl>
                       <Switch checked={field.value} onCheckedChange={field.onChange} />
                     </FormControl>
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name="reabreAutomatico"
+                render={({ field }) => (
+                  <FormItem className="space-y-3 rounded-xl border border-border p-3 sm:col-span-2">
+                    <div className="flex flex-row items-center justify-between">
+                      <div className="space-y-0.5">
+                        <FormLabel>Reabre automaticamente</FormLabel>
+                        <p className="text-xs text-muted-foreground">
+                          Volta os itens para pendente ao longo do dia (ex.: giro da
+                          Segurança). Anexos e respostas do ciclo são limpos a cada reabertura.
+                        </p>
+                      </div>
+                      <FormControl>
+                        <Switch checked={field.value} onCheckedChange={field.onChange} />
+                      </FormControl>
+                    </div>
+                    {field.value && (
+                      <FormField
+                        control={form.control}
+                        name="reabreIntervaloMin"
+                        render={({ field: intervalo }) => (
+                          <FormItem className="flex flex-row items-center gap-2">
+                            <FormLabel className="text-xs font-normal text-muted-foreground">
+                              Reabrir a cada
+                            </FormLabel>
+                            <FormControl>
+                              <Input
+                                type="number"
+                                min={1}
+                                max={1440}
+                                inputMode="numeric"
+                                className="w-20 text-center"
+                                value={intervalo.value}
+                                onChange={(e) =>
+                                  intervalo.onChange(Number(e.target.value) || 0)
+                                }
+                                onBlur={intervalo.onBlur}
+                                name={intervalo.name}
+                                ref={intervalo.ref}
+                              />
+                            </FormControl>
+                            <span className="text-xs text-muted-foreground">minutos</span>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                    )}
                   </FormItem>
                 )}
               />

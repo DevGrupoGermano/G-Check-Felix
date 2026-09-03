@@ -45,6 +45,16 @@ export async function rolloverPendente(): Promise<void> {
   if (error) throw error;
 }
 
+/**
+ * Reabre (volta para 'pendente') as rotinas com reabertura automática cujo
+ * intervalo já venceu. Idempotente no servidor — o pg_cron cobre o caminho
+ * normal; o client chama de tempos em tempos como rede de segurança.
+ */
+export async function reabrirAutomaticas(): Promise<void> {
+  const { error } = await supabase.rpc("reabrir_automaticas");
+  if (error) throw error;
+}
+
 export type StatusHistorico =
   | "futura"
   | "naoIniciada"
