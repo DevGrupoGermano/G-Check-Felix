@@ -1,11 +1,11 @@
 import * as React from "react";
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { toast } from "sonner";
-import { Pencil, Plus, ShieldCheck, Trash2, User } from "lucide-react";
+import { ChevronRight, Pencil, Plus, ShieldCheck, Trash2, User } from "lucide-react";
 
 import { AppShell } from "@/components/app-shell";
 import {
@@ -396,15 +396,23 @@ function FuncionariosPage() {
               const resumo = resumoDe(porFuncionario, p.nome);
               return (
               <li key={p.id} className="flex items-center justify-between gap-3 p-4">
-                <div className="flex min-w-0 items-center gap-3">
+                <Link
+                  to="/checklists"
+                  search={{ funcionarios: [p.nome] }}
+                  title={`Ver checklists de ${p.nome}`}
+                  className="group -m-1 flex min-w-0 items-center gap-3 rounded-lg p-1 transition-colors hover:bg-muted/60"
+                >
                   <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground">
                     <User className="size-4.5" />
                   </span>
                   <div className="min-w-0">
-                    <p className="truncate text-sm font-medium">{p.nome}</p>
+                    <p className="truncate text-sm font-medium group-hover:text-primary">
+                      {p.nome}
+                    </p>
                     <p className="truncate text-xs text-muted-foreground">{p.email}</p>
                   </div>
-                </div>
+                  <ChevronRight className="size-4 shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" />
+                </Link>
                 <div className="flex shrink-0 items-center gap-2">
                   {resumo.total > 0 && (
                     <Badge

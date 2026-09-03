@@ -46,50 +46,67 @@ export function SeletorDia({
   const [open, setOpen] = React.useState(false);
 
   const hoje = React.useMemo(() => new Date(), []);
-  const dataSelecionada = diaSelecionado ? dataDoIso(diaSelecionado) : undefined;
+  const ehTodas = diaSelecionado === "todas";
+  const dataSelecionada =
+    diaSelecionado && !ehTodas ? dataDoIso(diaSelecionado) : undefined;
   const ehHoje = dataSelecionada ? mesmoDia(dataSelecionada, hoje) : false;
   const dataFoco = dataSelecionada ?? hoje;
   const contagem = rotinasNoDia(checklists, dataFoco);
-  const rotulo = !dataSelecionada || ehHoje ? "Hoje" : fmtCurto.format(dataSelecionada);
+  const rotulo = ehTodas
+    ? "Todas"
+    : !dataSelecionada || ehHoje
+      ? "Hoje"
+      : fmtCurto.format(dataSelecionada);
 
-  function escolher(date: Date | undefined) {
-    onSelectDia(date ? isoDoDia(date) : undefined);
+  function escolher(valor: Date | "todas" | undefined) {
+    onSelectDia(valor === "todas" ? "todas" : valor ? isoDoDia(valor) : undefined);
     setOpen(false);
   }
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <Button variant={dataSelecionada ? "default" : "outline"} size="sm" className="gap-2">
+        <Button variant={diaSelecionado ? "default" : "outline"} size="sm" className="gap-2">
           <CalendarDays className="size-4" />
           {rotulo}
           <ChevronDown
             className={cn(
               "size-4 transition-transform",
               open && "rotate-180",
-              dataSelecionada ? "opacity-80" : "text-muted-foreground",
+              diaSelecionado ? "opacity-80" : "text-muted-foreground",
             )}
           />
         </Button>
       </PopoverTrigger>
       <PopoverContent align="start" className="w-64 p-0">
         <div className="p-3">
-          <p className="text-sm font-medium capitalize">{fmtLongo.format(dataFoco)}</p>
+          <p className="text-sm font-medium capitalize">
+            {ehTodas ? "Todas as atividades" : fmtLongo.format(dataFoco)}
+          </p>
           <p className="mt-0.5 text-xs text-muted-foreground">
-            {contagem === 0
-              ? "Nenhuma rotina neste dia"
-              : `${contagem} ${contagem === 1 ? "rotina" : "rotinas"} neste dia`}
+            {ehTodas
+              ? "Sem filtro por dia — todas as rotinas"
+              : contagem === 0
+                ? "Nenhuma rotina neste dia"
+                : `${contagem} ${contagem === 1 ? "rotina" : "rotinas"} neste dia`}
           </p>
 
           <div className="mt-3 flex flex-wrap gap-2">
             <Button
               size="sm"
-              variant={!dataSelecionada || ehHoje ? "default" : "secondary"}
+              variant={!diaSelecionado || ehHoje ? "default" : "secondary"}
               onClick={() => escolher(hoje)}
             >
               Hoje
             </Button>
-            {dataSelecionada && (
+            <Button
+              size="sm"
+              variant={ehTodas ? "default" : "secondary"}
+              onClick={() => escolher("todas")}
+            >
+              Todas
+            </Button>
+            {diaSelecionado && (
               <Button size="sm" variant="ghost" onClick={() => escolher(undefined)}>
                 Limpar
               </Button>
