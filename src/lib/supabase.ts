@@ -11,8 +11,18 @@ if (!supabaseUrl || !supabaseAnonKey) {
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
-/** Bucket das fotos de comprovação das tarefas (ver migration 20260901121000). */
-export const BUCKET_FOTOS = "checklist-fotos";
+/** Bucket dos anexos de comprovação das tarefas (ver migration 20260901121000). */
+export const BUCKET_ANEXOS = "checklist-fotos";
+
+/** Um anexo de comprovação (foto, vídeo ou documento) de um item de checklist. */
+export interface Anexo {
+  /** URL pública no Storage. */
+  url: string;
+  /** MIME do arquivo (ex.: "image/jpeg", "video/mp4", "application/pdf"). */
+  tipo: string;
+  /** Nome original do arquivo, para exibição. */
+  nome: string;
+}
 
 export interface ChecklistRow {
   id: string;
@@ -34,10 +44,10 @@ export interface ChecklistItemRow {
   responsavel: string;
   status: string;
   posicao: number;
-  /** Tarefa só pode ser concluída com uma foto anexada. */
-  exige_foto: boolean;
-  /** URL pública da foto anexada no dia; limpa no rollover. */
-  foto_url: string | null;
+  /** Quantos anexos são obrigatórios para concluir (0 = opcional). */
+  min_anexos: number;
+  /** Anexos enviados no dia; limpos no rollover. */
+  anexos: Anexo[];
 }
 
 export interface SetorRow {
@@ -71,8 +81,8 @@ export interface ChecklistExecucaoRow {
     titulo: string;
     responsavel: string;
     status: string;
-    exige_foto?: boolean;
-    foto_url?: string | null;
+    min_anexos?: number;
+    anexos?: Anexo[];
   }[];
   registrado_em: string;
 }

@@ -752,25 +752,26 @@ create policy "admin ve execucoes"
 
 
 -- ----------------------------------------------------------------------------
--- [20260901120000_add_item_exige_foto.sql]
+-- [20260901120000_add_item_exige_foto.sql] (revisado em 20260903_item_anexos)
 -- ----------------------------------------------------------------------------
--- "Exigir foto": por item da checklist, o admin pode marcar que a tarefa só pode
--- ser concluída depois de anexar uma foto de comprovação.
+-- Anexos de comprovação: por item da checklist, o admin define quantos arquivos
+-- (foto, vídeo ou documento) são obrigatórios para concluir a tarefa.
 --
---   - exige_foto  -> config da tarefa (só admin altera, como titulo/responsavel);
---   - foto_url    -> URL pública da foto anexada no dia. O responsável pelo item
---                    anexa/remove; o rollover diário limpa junto com o status.
+--   - min_anexos -> config da tarefa (só admin altera, como titulo/responsavel);
+--                   0 = opcional, N >= 1 = precisa de pelo menos N anexos.
+--   - anexos     -> jsonb array de {url, tipo, nome}. O responsável pelo item
+--                   adiciona/remove; o rollover diário limpa junto com o status.
 --
 -- A trava de conclusão é reforçada aqui no banco (trigger) além do client.
 
-alter table checklist_items add column if not exists exige_foto boolean not null default false;
-alter table checklist_items add column if not exists foto_url text;
+alter table checklist_items add column if not exists min_anexos int not null default 0;
+alter table checklist_items add column if not exists anexos jsonb not null default '[]'::jsonb;
 
 -- ---------------------------------------------------------------------------
 -- Trigger de update: agora também
---   1. trata exige_foto como campo só-admin;
---   2. deixa o responsável mexer em foto_url (além do status);
---   3. barra status -> 'concluido' sem foto quando exige_foto está ligado.
+--   1. trata min_anexos como campo só-admin;
+--   2. deixa o responsável mexer em anexos (além do status);
+--   3. barra status -> 'concluido' com menos anexos que min_anexos.
 -- ---------------------------------------------------------------------------
 create or replace function public.checklist_items_restrict_funcionario_update()
 returns trigger
@@ -781,7 +782,7 @@ as $$
 declare
   meu_nome text;
 begin
-  -- rollover diário (rollover_pendente) reinicia status/foto em massa
+  -- rollover diário (rollover_pendente) reinicia status/anexos em massa
   if coalesce(current_setting('app.bypass_item_guard', true), '') = 'on' then
     return new;
   end if;
@@ -795,12 +796,12 @@ begin
     or new.responsavel is distinct from old.responsavel
     or new.posicao is distinct from old.posicao
     or new.checklist_id is distinct from old.checklist_id
-    or new.exige_foto is distinct from old.exige_foto
+    or new.min_anexos is distinct from old.min_anexos
   then
     raise exception 'Apenas administradores podem editar os itens da checklist.';
   end if;
 
-  if new.status is distinct from old.status or new.foto_url is distinct from old.foto_url then
+  if new.status is distinct from old.status or new.anexos is distinct from old.anexos then
     select nome into meu_nome from public.profiles where id = auth.uid();
 
     if meu_nome is null or lower(trim(meu_nome)) is distinct from lower(trim(old.responsavel)) then
@@ -810,10 +811,9 @@ begin
 
   if new.status = 'concluido'
     and new.status is distinct from old.status
-    and new.exige_foto
-    and coalesce(new.foto_url, '') = ''
+    and coalesce(jsonb_array_length(new.anexos), 0) < new.min_anexos
   then
-    raise exception 'Anexe uma foto para concluir esta tarefa.';
+    raise exception 'Anexe pelo menos % arquivo(s) para concluir esta tarefa.', new.min_anexos;
   end if;
 
   return new;
@@ -821,8 +821,8 @@ end;
 $$;
 
 -- ---------------------------------------------------------------------------
--- Rollover: limpar foto_url junto com o status ao virar o dia, e guardar a
--- foto no snapshot do dia fechado (checklist_execucoes.itens).
+-- Rollover: limpar anexos junto com o status ao virar o dia, e guardar os
+-- anexos no snapshot do dia fechado (checklist_execucoes.itens).
 -- ---------------------------------------------------------------------------
 create or replace function public.rollover_snapshot_dia(alvo date, usar_estado boolean)
 returns void
@@ -853,8 +853,8 @@ begin
           'titulo', ci.titulo,
           'responsavel', ci.responsavel,
           'status', case when usar_estado then ci.status else 'pendente' end,
-          'exige_foto', ci.exige_foto,
-          'foto_url', case when usar_estado then ci.foto_url else null end
+          'min_anexos', ci.min_anexos,
+          'anexos', case when usar_estado then ci.anexos else '[]'::jsonb end
         ) order by ci.posicao
       ) filter (where ci.id is not null),
       '[]'
@@ -904,8 +904,8 @@ begin
 
   perform set_config('app.bypass_item_guard', 'on', true);
   update checklist_items
-    set status = 'pendente', foto_url = null
-    where status <> 'pendente' or foto_url is not null;
+    set status = 'pendente', anexos = '[]'::jsonb
+    where status <> 'pendente' or anexos <> '[]'::jsonb;
 
   update app_estado set valor = hoje_local::text, atualizado_em = now()
     where chave = 'ultimo_rollover';

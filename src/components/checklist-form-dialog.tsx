@@ -3,7 +3,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useQuery } from "@tanstack/react-query";
 import { useFieldArray, useForm } from "react-hook-form";
 import { z } from "zod";
-import { Camera, Pencil, Plus, Trash2 } from "lucide-react";
+import { Paperclip, Pencil, Plus, Trash2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -49,7 +49,11 @@ const itemSchema = z.object({
   titulo: z.string().trim().min(1, "Informe o título do item."),
   detalhe: z.string().trim().optional(),
   responsavel: z.string().trim().min(1, "Informe o responsável."),
-  exigeFoto: z.boolean(),
+  minAnexos: z.coerce
+    .number()
+    .int("Use um número inteiro.")
+    .min(0, "Não pode ser negativo.")
+    .max(10, "No máximo 10."),
 });
 
 const checklistSchema = z
@@ -70,7 +74,7 @@ const checklistSchema = z
 
 type ChecklistFormValues = z.infer<typeof checklistSchema>;
 
-const itemVazio = { titulo: "", detalhe: "", responsavel: "", exigeFoto: false };
+const itemVazio = { titulo: "", detalhe: "", responsavel: "", minAnexos: 0 };
 
 function turnoOuPadrao(turno: string): (typeof turnos)[number] {
   return (turnos as readonly string[]).includes(turno)
@@ -105,7 +109,7 @@ function valoresPadrao(checklist?: Checklist): ChecklistFormValues {
       titulo: i.titulo,
       detalhe: i.detalhe ?? "",
       responsavel: i.responsavel,
-      exigeFoto: i.exigeFoto,
+      minAnexos: i.minAnexos,
     })),
   };
 }
@@ -155,7 +159,7 @@ function ChecklistFormDialog({ checklist }: { checklist?: Checklist }) {
         ...(i.itemId ? { id: i.itemId } : {}),
         titulo: i.titulo,
         responsavel: i.responsavel,
-        exigeFoto: i.exigeFoto,
+        minAnexos: i.minAnexos,
         ...(detalhe ? { detalhe } : {}),
       };
     });
@@ -463,20 +467,31 @@ function ChecklistFormDialog({ checklist }: { checklist?: Checklist }) {
                     />
                     <FormField
                       control={form.control}
-                      name={`itens.${index}.exigeFoto`}
+                      name={`itens.${index}.minAnexos`}
                       render={({ field }) => (
                         <FormItem className="flex flex-row items-center justify-between gap-3 rounded-lg border border-border p-3">
                           <div className="space-y-0.5">
                             <FormLabel className="flex items-center gap-1.5">
-                              <Camera className="size-3.5" />
-                              Exigir foto para concluir
+                              <Paperclip className="size-3.5" />
+                              Anexos obrigatórios para concluir
                             </FormLabel>
                             <p className="text-xs text-muted-foreground">
-                              O responsável precisa anexar uma foto antes de marcar esta tarefa.
+                              0 = opcional. Ex.: 2 exige dois arquivos (foto, vídeo ou documento).
                             </p>
                           </div>
                           <FormControl>
-                            <Switch checked={field.value} onCheckedChange={field.onChange} />
+                            <Input
+                              type="number"
+                              min={0}
+                              max={10}
+                              inputMode="numeric"
+                              className="w-16 text-center"
+                              value={field.value}
+                              onChange={(e) => field.onChange(Number(e.target.value) || 0)}
+                              onBlur={field.onBlur}
+                              name={field.name}
+                              ref={field.ref}
+                            />
                           </FormControl>
                         </FormItem>
                       )}
