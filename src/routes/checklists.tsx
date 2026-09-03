@@ -223,7 +223,9 @@ export interface ChecklistSearch {
   checklist?: string | undefined;
   /**
    * Seletor de dia: ISO "yyyy-MM-dd" filtra pelas atividades daquele dia;
-   * "todas" mostra todas as atividades de todas as rotinas (somente leitura).
+   * "todas" mostra todas as atividades de todas as rotinas (somente leitura);
+   * "quinzenal"/"mensal" mostram só as atividades daquela recorrência, de todas
+   * as rotinas, sem recorte por dia (somente leitura).
    */
   dia?: string | undefined;
   /** "calendario" troca o conteúdo do <main> pela tela de calendário (header/sidebar seguem). */
@@ -276,8 +278,8 @@ export const Route = createFileRoute("/checklists")({
       : undefined;
     const checklist = typeof rawChecklist === "string" ? rawChecklist : undefined;
     const dia =
-      rawDia === "todas"
-        ? "todas"
+      rawDia === "todas" || rawDia === "quinzenal" || rawDia === "mensal"
+        ? rawDia
         : typeof rawDia === "string" && /^\d{4}-\d{2}-\d{2}$/.test(rawDia)
           ? rawDia
           : undefined;
@@ -1410,8 +1412,13 @@ function ChecklistsPage() {
   // marcado; "todas" mostra todas as atividades sem recorte; qualquer outro dia é
   // somente-leitura (abre para ver, não marca).
   const ehTodas = dia === "todas";
+  const ehQuinzenal = dia === "quinzenal";
+  const ehMensal = dia === "mensal";
+  // Recortes que ignoram o dia do calendário (visões transversais só-leitura).
+  const ehRecorteSemDia = ehTodas || ehQuinzenal || ehMensal;
   const ehHoje = !dia || dia === hojeISO;
-  const ehPassado = !!dia && !ehHoje && !ehTodas && dataDoIso(dia) < dataDoIso(hojeISO);
+  const ehPassado =
+    !!dia && !ehHoje && !ehRecorteSemDia && dataDoIso(dia) < dataDoIso(hojeISO);
   const somenteLeitura = !ehHoje;
 
   // Registro de um dia já fechado (snapshot em checklist_execucoes) — leitura só
@@ -1591,7 +1598,7 @@ function ChecklistsPage() {
       <AppShell title="Checklists" subtitle="Calendário de rotinas">
         <CalendarioChecklists
           checklists={minhasChecklists}
-          diaInicial={dia === "todas" ? undefined : dia}
+          diaInicial={ehRecorteSemDia ? undefined : dia}
           onVoltar={fecharCalendario}
           onAbrirDia={abrirDia}
         />
@@ -1599,8 +1606,9 @@ function ChecklistsPage() {
     );
   }
 
-  // Data em foco: o dia escolhido no seletor ou hoje.
-  const dataAlvo = dia && !ehTodas ? dataDoIso(dia) : new Date();
+  // Data em foco: o dia escolhido no seletor ou hoje (nos recortes sem dia
+  // — todas/quinzenal/mensal — não há data, então usa hoje só como referência).
+  const dataAlvo = dia && !ehRecorteSemDia ? dataDoIso(dia) : new Date();
   const diaSelecionado = !!dia && !ehHoje;
 
   // Recorta a rotina para o dia em foco: mantém só as atividades cuja recorrência
@@ -1610,6 +1618,15 @@ function ChecklistsPage() {
     ...c,
     itens: c.itens.filter((i) => itemRodaNoDia(i, dataAlvo)),
   });
+
+  // "?dia=quinzenal|mensal": mostra todas as rotinas, mas só com as atividades
+  // daquela recorrência — visão transversal, sem recorte por dia.
+  const recortarPorRecorrencia =
+    (rec: ChecklistItem["recorrencia"]) =>
+    (c: Checklist): Checklist => ({
+      ...c,
+      itens: c.itens.filter((i) => i.recorrencia === rec),
+    });
 
   // Base de dados do dia em foco:
   //  - todas             -> todas as rotinas com todos os itens (somente leitura);
@@ -1621,19 +1638,23 @@ function ChecklistsPage() {
   const checklistsDoDia: Checklist[] = (
     ehTodas
       ? minhasChecklists
-      : ehHoje
-        ? minhasChecklists.map(recortarDia)
-        : ehPassado && isAdmin
-          ? (execucoesDiaQuery.data ?? []).map((e) =>
-              checklistDeSnapshot(
-                e,
-                checklists.find((c) => c.id === e.checklist_id),
-              ),
-            )
-          : minhasChecklists
-              .filter((c) => checklistVigenteNoDia(c, dataAlvo))
-              .map(recortarDia)
-              .map(checklistPendente)
+      : ehQuinzenal
+        ? minhasChecklists.map(recortarPorRecorrencia("quinzenal"))
+        : ehMensal
+          ? minhasChecklists.map(recortarPorRecorrencia("mensal"))
+          : ehHoje
+            ? minhasChecklists.map(recortarDia)
+            : ehPassado && isAdmin
+              ? (execucoesDiaQuery.data ?? []).map((e) =>
+                  checklistDeSnapshot(
+                    e,
+                    checklists.find((c) => c.id === e.checklist_id),
+                  ),
+                )
+              : minhasChecklists
+                  .filter((c) => checklistVigenteNoDia(c, dataAlvo))
+                  .map(recortarDia)
+                  .map(checklistPendente)
   ).filter((c) => c.itens.length > 0);
 
   // Recorte por setor da rotina e por responsável de algum item — vale para
@@ -1742,14 +1763,24 @@ function ChecklistsPage() {
             </span>
             <div>
               <p className="text-sm font-semibold capitalize">
-                {ehTodas ? "Todas as atividades" : fmtDiaLongo.format(dataAlvo)}
+                {ehTodas
+                  ? "Todas as atividades"
+                  : ehQuinzenal
+                    ? "Atividades quinzenais"
+                    : ehMensal
+                      ? "Atividades mensais"
+                      : fmtDiaLongo.format(dataAlvo)}
               </p>
               <p className="text-xs text-muted-foreground">
                 {ehTodas
                   ? "Todas as atividades de todas as rotinas, independente do dia."
-                  : ehPassado
-                    ? "Registro de um dia já fechado — somente leitura."
-                    : "Este dia ainda não chegou — somente leitura."}{" "}
+                  : ehQuinzenal
+                    ? "Atividades com recorrência quinzenal, de todas as rotinas."
+                    : ehMensal
+                      ? "Atividades com recorrência mensal, de todas as rotinas."
+                      : ehPassado
+                        ? "Registro de um dia já fechado — somente leitura."
+                        : "Este dia ainda não chegou — somente leitura."}{" "}
                 As atividades só podem ser marcadas no dia programado.
               </p>
             </div>
@@ -1805,15 +1836,19 @@ function ChecklistsPage() {
                   <p className="rounded-2xl border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
                     {ehTodas
                       ? "Nenhuma rotina cadastrada."
-                      : somenteLeitura
-                        ? ehPassado
-                          ? "Nenhuma rotina registrada nesse dia."
-                          : "Nenhuma atividade programada para esse dia."
-                        : diaSelecionado
-                          ? "Nenhuma atividade para o dia escolhido."
-                          : temFiltroHorario
-                            ? "Nenhuma atividade no horário escolhido."
-                            : "Nenhuma rotina neste estado."}
+                      : ehQuinzenal
+                        ? "Nenhuma atividade quinzenal cadastrada."
+                        : ehMensal
+                          ? "Nenhuma atividade mensal cadastrada."
+                          : somenteLeitura
+                            ? ehPassado
+                              ? "Nenhuma rotina registrada nesse dia."
+                              : "Nenhuma atividade programada para esse dia."
+                            : diaSelecionado
+                              ? "Nenhuma atividade para o dia escolhido."
+                              : temFiltroHorario
+                                ? "Nenhuma atividade no horário escolhido."
+                                : "Nenhuma rotina neste estado."}
                   </p>
                 )}
               </>

@@ -9,6 +9,7 @@ import {
   checklistRodaNoDia,
   checklistVigenteNoDia,
   type Checklist,
+  type Recorrencia,
 } from "@/lib/g-check-store";
 
 function mesmoDia(a: Date, b: Date) {
@@ -53,19 +54,60 @@ export function SeletorDia({
 
   const hoje = React.useMemo(() => new Date(), []);
   const ehTodas = diaSelecionado === "todas";
+  const ehQuinzenal = diaSelecionado === "quinzenal";
+  const ehMensal = diaSelecionado === "mensal";
+  // "todas"/"quinzenal"/"mensal" são recortes sem data — não viram Date.
+  const ehRecorteSemDia = ehTodas || ehQuinzenal || ehMensal;
   const dataSelecionada =
-    diaSelecionado && !ehTodas ? dataDoIso(diaSelecionado) : undefined;
+    diaSelecionado && !ehRecorteSemDia ? dataDoIso(diaSelecionado) : undefined;
   const ehHoje = dataSelecionada ? mesmoDia(dataSelecionada, hoje) : false;
   const dataFoco = dataSelecionada ?? hoje;
-  const contagem = rotinasNoDia(checklists, dataFoco);
+  const recFoco: Recorrencia | null = ehQuinzenal
+    ? "quinzenal"
+    : ehMensal
+      ? "mensal"
+      : null;
+  const contagem = recFoco
+    ? checklists.filter(
+        (c) => c.ativo && c.itens.some((i) => i.recorrencia === recFoco),
+      ).length
+    : rotinasNoDia(checklists, dataFoco);
   const rotulo = ehTodas
     ? "Todas"
-    : !dataSelecionada || ehHoje
-      ? "Hoje"
-      : fmtCurto.format(dataSelecionada);
+    : ehQuinzenal
+      ? "Quinzenal"
+      : ehMensal
+        ? "Mensal"
+        : !dataSelecionada || ehHoje
+          ? "Hoje"
+          : fmtCurto.format(dataSelecionada);
 
-  function escolher(valor: Date | "todas" | undefined) {
-    onSelectDia(valor === "todas" ? "todas" : valor ? isoDoDia(valor) : undefined);
+  const tituloFoco = ehTodas
+    ? "Todas as atividades"
+    : ehQuinzenal
+      ? "Atividades quinzenais"
+      : ehMensal
+        ? "Atividades mensais"
+        : fmtLongo.format(dataFoco);
+
+  const resumoFoco = ehTodas
+    ? "Sem filtro por dia — todas as rotinas"
+    : recFoco
+      ? contagem === 0
+        ? `Nenhuma rotina com atividade ${rotulo.toLowerCase()}`
+        : `${contagem} ${contagem === 1 ? "rotina" : "rotinas"} com atividade ${rotulo.toLowerCase()}`
+      : contagem === 0
+        ? "Nenhuma rotina neste dia"
+        : `${contagem} ${contagem === 1 ? "rotina" : "rotinas"} neste dia`;
+
+  function escolher(valor: Date | "todas" | "quinzenal" | "mensal" | undefined) {
+    onSelectDia(
+      valor === "todas" || valor === "quinzenal" || valor === "mensal"
+        ? valor
+        : valor
+          ? isoDoDia(valor)
+          : undefined,
+    );
     setOpen(false);
   }
 
@@ -86,16 +128,8 @@ export function SeletorDia({
       </PopoverTrigger>
       <PopoverContent align="start" className="w-64 p-0">
         <div className="p-3">
-          <p className="text-sm font-medium capitalize">
-            {ehTodas ? "Todas as atividades" : fmtLongo.format(dataFoco)}
-          </p>
-          <p className="mt-0.5 text-xs text-muted-foreground">
-            {ehTodas
-              ? "Sem filtro por dia — todas as rotinas"
-              : contagem === 0
-                ? "Nenhuma rotina neste dia"
-                : `${contagem} ${contagem === 1 ? "rotina" : "rotinas"} neste dia`}
-          </p>
+          <p className="text-sm font-medium capitalize">{tituloFoco}</p>
+          <p className="mt-0.5 text-xs text-muted-foreground">{resumoFoco}</p>
 
           <div className="mt-3 flex flex-wrap gap-2">
             <Button
@@ -111,6 +145,20 @@ export function SeletorDia({
               onClick={() => escolher("todas")}
             >
               Todas
+            </Button>
+            <Button
+              size="sm"
+              variant={ehQuinzenal ? "default" : "secondary"}
+              onClick={() => escolher("quinzenal")}
+            >
+              Quinzenal
+            </Button>
+            <Button
+              size="sm"
+              variant={ehMensal ? "default" : "secondary"}
+              onClick={() => escolher("mensal")}
+            >
+              Mensal
             </Button>
             {diaSelecionado && (
               <Button size="sm" variant="ghost" onClick={() => escolher(undefined)}>
