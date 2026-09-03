@@ -115,7 +115,7 @@ function LinhaEntrada({ e }: { e: DiaHistorico["entradas"][number] }) {
       <span className={cn("size-1.5 shrink-0 rounded-full", st.dot)} />
       <span className="font-medium">{e.nome}</span>
       <span className="text-xs text-muted-foreground">
-        {e.turno} · {e.horario} · {e.setor}
+        {[e.turno, e.horario, e.setor].filter(Boolean).join(" · ")}
       </span>
       <span className={cn("text-xs font-medium", st.texto)}>
         {st.label}
@@ -281,7 +281,7 @@ function VistaCalendario({
                         ESTILO[e.status].pill,
                       )}
                     >
-                      {e.horario} {e.nome}
+                      {[e.horario, e.nome].filter(Boolean).join(" ")}
                     </span>
                   ))}
                   {resto > 0 && (

@@ -47,6 +47,7 @@ import {
 } from "@/components/ui/command";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Progress } from "@/components/ui/progress";
+import { Textarea } from "@/components/ui/textarea";
 import { cn, dataDoIso } from "@/lib/utils";
 import { useAuth } from "@/lib/auth-store";
 import type { ChecklistExecucaoRow } from "@/lib/supabase";
@@ -58,11 +59,14 @@ import {
 } from "@/lib/dias-desativados";
 import {
   checklistRodaNoDia,
+  descricaoAgenda,
   ehResponsavel,
   itemRodaNoDia,
   labelRecorrencia,
+  limiteDaRotina,
   progresso,
   turnos,
+  turnoDoHorario,
   useGCheck,
   type Checklist,
   type ChecklistItem,
@@ -107,11 +111,14 @@ function estadoVista(c: Checklist, agora: Date = new Date()): EstadoVista {
   const { feitos, total } = progresso(c);
   if (total > 0 && feitos === total) return "concluido";
   const agoraMin = agora.getHours() * 60 + agora.getMinutes();
-  if (c.tempoLimite && agoraMin > minutosHHMM(c.tempoLimite)) return "atrasada";
+  const limite = limiteDaRotina(c);
+  if (limite && agoraMin > minutosHHMM(limite)) return "atrasada";
   if (feitos > 0) return "em_andamento";
-  // Nada feito e dentro do prazo: "pendente" quando o horário da rotina já
-  // chegou; senão ainda está fora da janela de programação = "não iniciada".
-  return agoraMin >= minutosHHMM(c.horario) ? "pendente" : "nao_iniciada";
+  // Nada feito e dentro do prazo: "pendente" quando o horário de início dos
+  // itens já chegou (ou não há horário); senão ainda está fora da janela.
+  return !c.horarioInicio || agoraMin >= minutosHHMM(c.horarioInicio)
+    ? "pendente"
+    : "nao_iniciada";
 }
 
 /**
@@ -143,41 +150,49 @@ const ESTADO_VISTA_UI: Record<EstadoVista, { label: string; classe: string }> = 
  */
 function checklistDeSnapshot(e: ChecklistExecucaoRow, vivo: Checklist | undefined): Checklist {
   const dowSnapshot = dataDoIso(e.data).getDay();
-  return {
-    id: e.checklist_id,
-    nome: e.nome,
-    setor: e.setor,
-    turno: e.turno,
-    horario: e.horario.slice(0, 5),
-    ativo: vivo?.ativo ?? true,
-    itens: (e.itens ?? []).map((it, idx) => ({
+  const itens: ChecklistItem[] = (e.itens ?? []).map((it, idx) => {
+    const horarioInicio = it.horario_inicio ? it.horario_inicio.slice(0, 5) : null;
+    return {
       id: `${e.checklist_id}-snap-${idx}`,
       titulo: it.titulo,
       responsavel: it.responsavel,
       status: it.status === "concluido" ? "concluido" : "pendente",
+      tipoTarefa: it.tipo_tarefa ?? "checklist",
+      respostaOpcoes: it.resposta_opcoes ?? [],
+      resposta: it.resposta ?? null,
+      justificativa: it.justificativa ?? null,
+      turno: it.turno ?? turnoDoHorario(horarioInicio),
+      horarioInicio,
+      horarioTermino: it.horario_termino ? it.horario_termino.slice(0, 5) : null,
       minAnexos: it.min_anexos ?? 0,
+      maxAnexos: it.max_anexos ?? null,
       anexos: it.anexos ?? [],
       recorrencia: "semanal" as const,
       diasSemana: [dowSnapshot],
       inicio: null,
-    })),
+    };
+  });
+  return {
+    id: e.checklist_id,
+    nome: e.nome,
+    setor: e.setor,
+    ativo: vivo?.ativo ?? true,
+    ...descricaoAgenda(itens),
+    itens,
   };
 }
 
 /** Cópia da rotina com todo item "pendente" — usada em dias que ainda não chegaram. */
 function checklistPendente(c: Checklist): Checklist {
   return {
-    id: c.id,
-    nome: c.nome,
-    setor: c.setor,
-    turno: c.turno,
-    horario: c.horario,
-    ativo: c.ativo,
+    ...c,
     // Dia que ainda não chegou: sem status e sem os anexos do dia de hoje.
     itens: c.itens.map((i) => ({
       ...i,
       anexos: [],
       status: "pendente" as const,
+      resposta: null,
+      justificativa: null,
     })),
   };
 }
@@ -543,6 +558,87 @@ function ExcluirChecklistButton({ c }: { c: Checklist }) {
 const ACCEPT_ANEXOS = "image/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.txt";
 
 /**
+ * Botões de opção de uma atividade "enquete". Ficam do lado oposto ao check
+ * (que abre à esquerda da linha). Só o responsável (ou admin) escolhe; a
+ * conclusão exige uma opção marcada (trava no store e no trigger do banco).
+ */
+function EnqueteOpcoes({
+  checklistId,
+  item,
+  podeEditar,
+  className,
+}: {
+  checklistId: string;
+  item: ChecklistItem;
+  podeEditar: boolean;
+  className?: string;
+}) {
+  const { responderEnquete } = useGCheck();
+  return (
+    <div className={cn("flex flex-wrap gap-1.5", className)}>
+      {item.respostaOpcoes.map((opcao) => {
+        const ativo = item.resposta === opcao;
+        return (
+          <button
+            key={opcao}
+            type="button"
+            disabled={!podeEditar}
+            aria-pressed={ativo}
+            onClick={() => podeEditar && responderEnquete(checklistId, item.id, opcao)}
+            className={cn(
+              "rounded-full border px-3 py-1 text-xs font-medium transition-colors",
+              ativo
+                ? "border-primary bg-primary text-primary-foreground"
+                : "border-input text-muted-foreground hover:border-primary hover:text-foreground",
+              !podeEditar && "cursor-not-allowed opacity-60",
+            )}
+          >
+            {opcao}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+/**
+ * Barra de justificativa/observação de uma atividade "enquete": o responsável
+ * explica o motivo da resposta — vale tanto para as positivas quanto para as
+ * negativas. Grava no `onBlur` (sem botão extra).
+ */
+function JustificativaCampo({
+  checklistId,
+  item,
+  podeEditar,
+  className,
+}: {
+  checklistId: string;
+  item: ChecklistItem;
+  podeEditar: boolean;
+  className?: string;
+}) {
+  const { justificarItem } = useGCheck();
+  const [texto, setTexto] = React.useState(item.justificativa ?? "");
+  React.useEffect(() => {
+    setTexto(item.justificativa ?? "");
+  }, [item.justificativa]);
+
+  return (
+    <Textarea
+      rows={2}
+      value={texto}
+      disabled={!podeEditar}
+      placeholder="Justificativa / observação (o motivo da resposta)"
+      onChange={(e) => setTexto(e.target.value)}
+      onBlur={() => {
+        if (texto !== (item.justificativa ?? "")) justificarItem(checklistId, item.id, texto);
+      }}
+      className={cn("text-sm", className)}
+    />
+  );
+}
+
+/**
  * Anexos de comprovação de um item (foto, vídeo ou documento — vários por item).
  * Quando `podeEditar`, mostra o botão de adicionar e o "x" de cada anexo; caso
  * contrário fica só com as miniaturas/chips clicáveis (dia fechado / leitura).
@@ -740,10 +836,21 @@ function ChecklistCard({
               <h2 className="text-base font-semibold tracking-tight">{c.nome}</h2>
               <p className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
                 <span>{c.setor}</span>
-                <span className="inline-flex items-center gap-1">
-                  <Clock className="size-3.5" /> {c.turno} · {c.horario}
-                  {c.tempoLimite && ` · até ${c.tempoLimite}`}
-                </span>
+                {(c.turnos.length > 0 || c.horarioInicio) && (
+                  <span className="inline-flex items-center gap-1">
+                    <Clock className="size-3.5" />{" "}
+                    {[
+                      c.turnos.join(" · "),
+                      c.horarioInicio &&
+                        (c.horarioTermino
+                          ? `${c.horarioInicio}–${c.horarioTermino}`
+                          : c.horarioInicio),
+                      c.tempoLimite && `até ${c.tempoLimite}`,
+                    ]
+                      .filter(Boolean)
+                      .join(" · ")}
+                  </span>
+                )}
                 <span className="inline-flex items-center gap-1">
                   <CalendarDays className="size-3.5" />{" "}
                   {c.itens.length} {c.itens.length === 1 ? "atividade" : "atividades"}
@@ -821,11 +928,14 @@ function ChecklistCard({
                 !bloqueado && !somenteLeitura && (isAdmin || ehResponsavel(i, profile?.nome));
               // Item que ainda não tem os anexos mínimos: não dá pra concluir (só reabrir).
               const anexosPendentes = i.anexos.length < i.minAnexos && !feito;
+              // Enquete sem opção escolhida: idem, trava a conclusão.
+              const respostaPendente = i.tipoTarefa === "enquete" && !i.resposta && !feito;
+              const travaConclusao = anexosPendentes || respostaPendente;
               return (
-                <li key={i.id} className="flex items-start gap-3 py-3">
+                <li key={i.id} className="flex flex-wrap items-start gap-3 py-3">
                   <button
-                    onClick={() => podeMarcar && !anexosPendentes && toggleItem(c.id, i.id)}
-                    disabled={!podeMarcar || anexosPendentes}
+                    onClick={() => podeMarcar && !travaConclusao && toggleItem(c.id, i.id)}
+                    disabled={!podeMarcar || travaConclusao}
                     aria-label={
                       bloqueado
                         ? "Rotina desativada hoje"
@@ -835,22 +945,24 @@ function ChecklistCard({
                             ? `Item atribuído a ${i.responsavel}`
                             : anexosPendentes
                               ? `Anexe os arquivos para concluir ${i.titulo}`
-                              : feito
-                                ? `Reabrir ${i.titulo}`
-                                : `Concluir ${i.titulo}`
+                              : respostaPendente
+                                ? `Escolha uma resposta para concluir ${i.titulo}`
+                                : feito
+                                  ? `Reabrir ${i.titulo}`
+                                  : `Concluir ${i.titulo}`
                     }
                     className={cn(
                       "mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-md border transition-colors",
                       feito
                         ? "border-primary bg-primary text-primary-foreground"
                         : "border-input hover:border-primary",
-                      (!podeMarcar || anexosPendentes) &&
+                      (!podeMarcar || travaConclusao) &&
                         "cursor-not-allowed opacity-50 hover:border-input",
                     )}
                   >
                     {feito && <Check className="size-3.5" />}
                   </button>
-                  <div className="min-w-0">
+                  <div className="min-w-0 flex-1">
                     <p
                       className={cn(
                         "text-sm font-medium",
@@ -878,6 +990,22 @@ function ChecklistCard({
                       />
                     )}
                   </div>
+                  {i.tipoTarefa === "enquete" && (
+                    <>
+                      <EnqueteOpcoes
+                        checklistId={c.id}
+                        item={i}
+                        podeEditar={podeMarcar && !feito}
+                        className="shrink-0 justify-end sm:max-w-[45%]"
+                      />
+                      <JustificativaCampo
+                        checklistId={c.id}
+                        item={i}
+                        podeEditar={podeMarcar && !feito}
+                        className="mt-1 basis-full"
+                      />
+                    </>
+                  )}
                 </li>
               );
             })}
@@ -998,27 +1126,31 @@ function TarefaRow({
   const feito = i.status === "concluido";
   // Tarefa que ainda não tem os anexos mínimos: bloqueia a conclusão até anexar.
   const anexosPendentes = i.anexos.length < i.minAnexos && !feito;
+  const respostaPendente = i.tipoTarefa === "enquete" && !i.resposta && !feito;
+  const travaConclusao = anexosPendentes || respostaPendente;
 
   return (
     <li className="flex flex-wrap items-center gap-x-3 gap-y-2 p-4">
       <button
-        onClick={() => !bloqueado && !anexosPendentes && toggleItem(c.id, i.id)}
-        disabled={bloqueado || anexosPendentes}
+        onClick={() => !bloqueado && !travaConclusao && toggleItem(c.id, i.id)}
+        disabled={bloqueado || travaConclusao}
         aria-label={
           bloqueado
             ? "Rotina desativada hoje"
             : anexosPendentes
               ? `Anexe os arquivos para concluir ${i.titulo}`
-              : feito
-                ? `Reabrir ${i.titulo}`
-                : `Concluir ${i.titulo}`
+              : respostaPendente
+                ? `Escolha uma resposta para concluir ${i.titulo}`
+                : feito
+                  ? `Reabrir ${i.titulo}`
+                  : `Concluir ${i.titulo}`
         }
         className={cn(
           "flex size-5 shrink-0 items-center justify-center rounded-md border transition-colors",
           feito
             ? "border-primary bg-primary text-primary-foreground"
             : "border-input hover:border-primary",
-          (bloqueado || anexosPendentes) && "cursor-not-allowed opacity-50 hover:border-input",
+          (bloqueado || travaConclusao) && "cursor-not-allowed opacity-50 hover:border-input",
         )}
       >
         {feito && <Check className="size-3.5" />}
@@ -1037,14 +1169,32 @@ function TarefaRow({
         {(i.minAnexos > 0 || i.anexos.length > 0) && (
           <AnexosItem checklistId={c.id} item={i} podeEditar={!bloqueado && !feito} />
         )}
+        {i.tipoTarefa === "enquete" && (
+          <div className="mt-2 space-y-2">
+            <EnqueteOpcoes checklistId={c.id} item={i} podeEditar={!bloqueado && !feito} />
+            <JustificativaCampo
+              checklistId={c.id}
+              item={i}
+              podeEditar={!bloqueado && !feito}
+            />
+          </div>
+        )}
       </div>
 
       <div className="flex shrink-0 items-center gap-3 pl-8 sm:pl-0">
         <div className="flex flex-col items-end gap-0.5 text-xs text-muted-foreground">
-          <span className="inline-flex items-center gap-1">
-            <Clock className="size-3.5" /> {c.horario}
-            {c.tempoLimite && ` · até ${c.tempoLimite}`}
-          </span>
+          {(i.horarioInicio || i.turno) && (
+            <span className="inline-flex items-center gap-1">
+              <Clock className="size-3.5" />{" "}
+              {[
+                i.turno,
+                i.horarioInicio &&
+                  (i.horarioTermino ? `${i.horarioInicio}–${i.horarioTermino}` : i.horarioInicio),
+              ]
+                .filter(Boolean)
+                .join(" · ")}
+            </span>
+          )}
           <span className="inline-flex items-center gap-1">
             <CalendarDays className="size-3.5" /> {fmtDataTarefa.format(data)}
           </span>
@@ -1329,10 +1479,12 @@ function ChecklistsPage() {
     return true;
   };
 
+  const passaTurno = (c: Checklist) =>
+    turnosSelecionados.length === 0 ||
+    c.turnos.some((t) => turnosSelecionados.includes(t as Turno));
+
   const lista = checklistsDoDia.filter((c) => {
-    if (turnosSelecionados.length > 0 && !turnosSelecionados.includes(c.turno as Turno)) {
-      return false;
-    }
+    if (!passaTurno(c)) return false;
     if (!passaSetorEFuncionario(c)) return false;
     if (!ehHoje) {
       return (
@@ -1349,22 +1501,23 @@ function ChecklistsPage() {
   const tarefasFuncionario: TarefaFuncionario[] = isAdmin
     ? []
     : checklistsDoDia
-        .filter((c) => {
-          if (turnosSelecionados.length > 0 && !turnosSelecionados.includes(c.turno as Turno)) {
-            return false;
-          }
-          return passaSetorEFuncionario(c);
-        })
+        .filter((c) => passaTurno(c) && passaSetorEFuncionario(c))
         .flatMap((c) =>
           c.itens
             .filter((i) => ehResponsavel(i, profile?.nome))
+            .filter((i) => {
+              if (turnosSelecionados.length === 0) return true;
+              const t = i.turno ?? turnoDoHorario(i.horarioInicio);
+              return !t || turnosSelecionados.includes(t as Turno);
+            })
             .map((i) => ({ checklist: c, item: i, estado: estadoDaTarefa(c, i, ehHoje) })),
         )
         .filter((t) => estadosSelecionados.length === 0 || estadosSelecionados.includes(t.estado))
         .sort(
           (a, b) =>
-            a.checklist.horario.localeCompare(b.checklist.horario) ||
-            a.item.titulo.localeCompare(b.item.titulo),
+            (a.item.horarioInicio ?? a.checklist.horarioInicio ?? "99:99").localeCompare(
+              b.item.horarioInicio ?? b.checklist.horarioInicio ?? "99:99",
+            ) || a.item.titulo.localeCompare(b.item.titulo),
         );
 
   const temFiltro =

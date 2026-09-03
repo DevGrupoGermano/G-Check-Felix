@@ -32,7 +32,11 @@ function celulasDoMes(ref: Date): Date[] {
 function rotinasDoDia(checklists: Checklist[], date: Date): Checklist[] {
   return checklists
     .filter((c) => c.ativo && checklistRodaNoDia(c, date))
-    .sort((a, b) => a.horario.localeCompare(b.horario));
+    .sort(
+      (a, b) =>
+        (a.horarioInicio ?? "99:99").localeCompare(b.horarioInicio ?? "99:99") ||
+        a.nome.localeCompare(b.nome),
+    );
 }
 
 /**
@@ -164,10 +168,12 @@ export function CalendarioChecklists({
                     {visiveis.map((c) => (
                       <span
                         key={c.id}
-                        title={`${c.nome} — ${c.turno} · ${c.horario} · ${c.setor}`}
+                        title={[c.nome, c.turnos.join(" · "), c.horarioInicio, c.setor]
+                          .filter(Boolean)
+                          .join(" — ")}
                         className="truncate rounded-md bg-primary/10 px-1.5 py-1 text-xs font-medium text-primary"
                       >
-                        {c.horario} {c.nome}
+                        {[c.horarioInicio, c.nome].filter(Boolean).join(" ")}
                       </span>
                     ))}
                     {resto > 0 && (

@@ -34,17 +34,28 @@ import {
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import {
+  descricaoAgenda,
   diasDaSemana,
   recorrencias,
+  tiposTarefa,
   todosOsDias,
-  turnos,
+  turnoDoHorario,
   useGCheck,
   type Checklist,
   type Recorrencia,
+  type TipoTarefa,
 } from "@/lib/g-check-store";
 import { fetchProfiles, PROFILES_QUERY_KEY } from "@/lib/profiles";
 import { fetchSetores, SETORES_QUERY_KEY } from "@/lib/setores";
 import { cn } from "@/lib/utils";
+
+/** Divide "SIM / NÃO" ou "SIM, NÃO" numa lista limpa de opções. */
+function parseOpcoes(texto: string): string[] {
+  return texto
+    .split(/[/,]/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
 
 const itemSchema = z
   .object({
@@ -52,11 +63,20 @@ const itemSchema = z
     titulo: z.string().trim().min(1, "Informe o título do item."),
     detalhe: z.string().trim().optional(),
     responsavel: z.string().trim().min(1, "Informe o responsável."),
+    tipoTarefa: z.enum(tiposTarefa),
+    respostaOpcoesTexto: z.string().trim(),
+    horarioInicio: z.string().trim(),
+    horarioTermino: z.string().trim(),
     minAnexos: z.coerce
       .number()
       .int("Use um número inteiro.")
       .min(0, "Não pode ser negativo.")
-      .max(10, "No máximo 10."),
+      .max(50, "No máximo 50."),
+    maxAnexos: z.coerce
+      .number()
+      .int("Use um número inteiro.")
+      .min(0, "Não pode ser negativo.")
+      .max(50, "No máximo 50."),
     recorrencia: z.enum(recorrencias),
     diasSemana: z.array(z.number()),
     inicio: z.string(),
@@ -68,22 +88,36 @@ const itemSchema = z
     if (v.recorrencia !== "semanal" && !v.inicio) {
       ctx.addIssue({ code: "custom", path: ["inicio"], message: "Escolha a data de início." });
     }
+    if (v.tipoTarefa === "enquete" && parseOpcoes(v.respostaOpcoesTexto).length < 2) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["respostaOpcoesTexto"],
+        message: "Informe pelo menos duas opções (ex.: SIM / NÃO).",
+      });
+    }
+    if (v.maxAnexos > 0 && v.maxAnexos < v.minAnexos) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["maxAnexos"],
+        message: "O máximo não pode ser menor que o mínimo.",
+      });
+    }
+    if (v.horarioInicio && v.horarioTermino && v.horarioTermino < v.horarioInicio) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["horarioTermino"],
+        message: "O término deve ser depois do início.",
+      });
+    }
   });
 
-const checklistSchema = z
-  .object({
-    nome: z.string().trim().min(1, "Informe o nome da checklist."),
-    setor: z.string().trim().min(1, "Informe o setor."),
-    turno: z.enum(turnos, { message: "Selecione o turno." }),
-    horario: z.string().trim().min(1, "Informe o horário."),
-    tempoLimite: z.string().trim(),
-    ativo: z.boolean(),
-    itens: z.array(itemSchema).min(1, "Adicione ao menos um item."),
-  })
-  .refine((v) => !v.tempoLimite || !v.horario || v.tempoLimite >= v.horario, {
-    message: "O tempo limite deve ser igual ou depois do horário de início.",
-    path: ["tempoLimite"],
-  });
+const checklistSchema = z.object({
+  nome: z.string().trim().min(1, "Informe o nome da checklist."),
+  setor: z.string().trim().min(1, "Informe o setor."),
+  tempoLimite: z.string().trim(),
+  ativo: z.boolean(),
+  itens: z.array(itemSchema).min(1, "Adicione ao menos um item."),
+});
 
 type ChecklistFormValues = z.infer<typeof checklistSchema>;
 
@@ -91,25 +125,22 @@ const itemVazio = {
   titulo: "",
   detalhe: "",
   responsavel: "",
+  tipoTarefa: "checklist" as TipoTarefa,
+  respostaOpcoesTexto: "SIM / NÃO",
+  horarioInicio: "",
+  horarioTermino: "",
   minAnexos: 0,
+  maxAnexos: 0,
   recorrencia: "semanal" as Recorrencia,
   diasSemana: [...todosOsDias],
   inicio: "",
 };
-
-function turnoOuPadrao(turno: string): (typeof turnos)[number] {
-  return (turnos as readonly string[]).includes(turno)
-    ? (turno as (typeof turnos)[number])
-    : turnos[0];
-}
 
 function valoresPadrao(checklist?: Checklist): ChecklistFormValues {
   if (!checklist) {
     return {
       nome: "",
       setor: "",
-      turno: turnos[0],
-      horario: "",
       tempoLimite: "",
       ativo: true,
       itens: [itemVazio],
@@ -118,8 +149,6 @@ function valoresPadrao(checklist?: Checklist): ChecklistFormValues {
   return {
     nome: checklist.nome,
     setor: checklist.setor,
-    turno: turnoOuPadrao(checklist.turno),
-    horario: checklist.horario,
     tempoLimite: checklist.tempoLimite ?? "",
     ativo: checklist.ativo,
     itens: checklist.itens.map((i) => ({
@@ -127,7 +156,12 @@ function valoresPadrao(checklist?: Checklist): ChecklistFormValues {
       titulo: i.titulo,
       detalhe: i.detalhe ?? "",
       responsavel: i.responsavel,
+      tipoTarefa: i.tipoTarefa,
+      respostaOpcoesTexto: i.respostaOpcoes.join(" / ") || "SIM / NÃO",
+      horarioInicio: i.horarioInicio ?? "",
+      horarioTermino: i.horarioTermino ?? "",
       minAnexos: i.minAnexos,
+      maxAnexos: i.maxAnexos ?? 0,
       recorrencia: i.recorrencia,
       diasSemana: i.diasSemana.length > 0 ? [...i.diasSemana] : [...todosOsDias],
       inicio: i.inicio ?? "",
@@ -149,6 +183,17 @@ function ChecklistFormDialog({ checklist }: { checklist?: Checklist }) {
     control: form.control,
     name: "itens",
   });
+
+  // Agenda da rotina (turnos + faixa de horário) derivada das atividades — só
+  // descrição, nada é gravado na rotina.
+  const itensObservados = form.watch("itens");
+  const agenda = descricaoAgenda(
+    (itensObservados ?? []).map((i) => ({
+      turno: turnoDoHorario(i?.horarioInicio || null),
+      horarioInicio: i?.horarioInicio || null,
+      horarioTermino: i?.horarioTermino || null,
+    })),
+  );
 
   const { data: funcionarios = [] } = useQuery({
     queryKey: PROFILES_QUERY_KEY,
@@ -176,11 +221,18 @@ function ChecklistFormDialog({ checklist }: { checklist?: Checklist }) {
     // preserva o status do item ou o cria do zero — ver g-check-store.tsx.
     const itens = values.itens.map((i) => {
       const detalhe = i.detalhe?.trim();
+      const enquete = i.tipoTarefa === "enquete";
       return {
         ...(i.itemId ? { id: i.itemId } : {}),
         titulo: i.titulo,
         responsavel: i.responsavel,
+        tipoTarefa: i.tipoTarefa,
+        respostaOpcoes: enquete ? parseOpcoes(i.respostaOpcoesTexto) : [],
+        turno: turnoDoHorario(i.horarioInicio || null),
+        horarioInicio: i.horarioInicio || null,
+        horarioTermino: i.horarioTermino || null,
         minAnexos: i.minAnexos,
+        maxAnexos: i.maxAnexos > 0 ? i.maxAnexos : null,
         recorrencia: i.recorrencia,
         diasSemana: [...i.diasSemana].sort((a, b) => a - b),
         inicio: i.inicio || null,
@@ -191,8 +243,6 @@ function ChecklistFormDialog({ checklist }: { checklist?: Checklist }) {
     const dados = {
       nome: values.nome,
       setor: values.setor,
-      turno: values.turno,
-      horario: values.horario,
       ativo: values.ativo,
       ...(values.tempoLimite.trim() ? { tempoLimite: values.tempoLimite.trim() } : {}),
       itens,
@@ -285,43 +335,6 @@ function ChecklistFormDialog({ checklist }: { checklist?: Checklist }) {
               />
               <FormField
                 control={form.control}
-                name="turno"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Turno</FormLabel>
-                    <Select value={field.value} onValueChange={field.onChange}>
-                      <FormControl>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Selecione" />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        {turnos.map((t) => (
-                          <SelectItem key={t} value={t}>
-                            {t}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={form.control}
-                name="horario"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Horário</FormLabel>
-                    <FormControl>
-                      <Input type="time" {...field} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={form.control}
                 name="tempoLimite"
                 render={({ field }) => (
                   <FormItem>
@@ -330,12 +343,27 @@ function ChecklistFormDialog({ checklist }: { checklist?: Checklist }) {
                       <Input type="time" {...field} />
                     </FormControl>
                     <p className="text-xs text-muted-foreground">
-                      Passou daqui sem concluir, a rotina fica “Atrasada”.
+                      Passou daqui sem concluir, a rotina fica “Atrasada”. Em branco, usa o
+                      último término das atividades.
                     </p>
                     <FormMessage />
                   </FormItem>
                 )}
               />
+              <div className="rounded-xl border border-border p-3 text-xs text-muted-foreground sm:col-span-2">
+                <span className="font-medium text-foreground">Agenda (automática): </span>
+                {agenda.turnos.length > 0 || agenda.horarioInicio
+                  ? [
+                      agenda.turnos.join(" · "),
+                      agenda.horarioInicio &&
+                        (agenda.horarioTermino
+                          ? `${agenda.horarioInicio}–${agenda.horarioTermino}`
+                          : agenda.horarioInicio),
+                    ]
+                      .filter(Boolean)
+                      .join(" · ")
+                  : "defina o horário de início nas atividades"}
+              </div>
               <FormField
                 control={form.control}
                 name="ativo"
@@ -449,35 +477,159 @@ function ChecklistFormDialog({ checklist }: { checklist?: Checklist }) {
                     />
                     <FormField
                       control={form.control}
-                      name={`itens.${index}.minAnexos`}
-                      render={({ field }) => (
-                        <FormItem className="flex flex-row items-center justify-between gap-3 rounded-lg border border-border p-3">
-                          <div className="space-y-0.5">
+                      name={`itens.${index}.tipoTarefa`}
+                      render={({ field }) => {
+                        const tipo = field.value as TipoTarefa;
+                        return (
+                          <FormItem className="rounded-lg border border-border p-3">
+                            <FormLabel>Tipo da atividade</FormLabel>
+                            <FormControl>
+                              <div className="mt-1 inline-flex rounded-lg border border-input p-0.5">
+                                {tiposTarefa.map((t) => (
+                                  <button
+                                    key={t}
+                                    type="button"
+                                    onClick={() => field.onChange(t)}
+                                    aria-pressed={tipo === t}
+                                    className={cn(
+                                      "rounded-md px-3 py-1 text-xs font-medium capitalize transition-colors",
+                                      tipo === t
+                                        ? "bg-primary text-primary-foreground"
+                                        : "text-muted-foreground hover:text-foreground",
+                                    )}
+                                  >
+                                    {t === "checklist" ? "Checklist" : "Enquete"}
+                                  </button>
+                                ))}
+                              </div>
+                            </FormControl>
+                            <p className="text-xs text-muted-foreground">
+                              Checklist: marca feito/não feito. Enquete: o responsável escolhe
+                              uma opção e justifica.
+                            </p>
+                            {tipo === "enquete" && (
+                              <FormField
+                                control={form.control}
+                                name={`itens.${index}.respostaOpcoesTexto`}
+                                render={({ field: opc }) => (
+                                  <FormItem className="mt-2">
+                                    <FormLabel className="text-xs font-normal text-muted-foreground">
+                                      Opções de resposta (separe com “/”)
+                                    </FormLabel>
+                                    <FormControl>
+                                      <Input placeholder="SIM / NÃO" {...opc} />
+                                    </FormControl>
+                                    <div className="mt-1 flex flex-wrap gap-1.5">
+                                      {["SIM / NÃO", "PADRÃO / NÃO PADRÃO"].map((preset) => (
+                                        <button
+                                          key={preset}
+                                          type="button"
+                                          onClick={() => opc.onChange(preset)}
+                                          className="rounded-full border border-input px-2 py-0.5 text-xs text-muted-foreground hover:border-primary hover:text-foreground"
+                                        >
+                                          {preset}
+                                        </button>
+                                      ))}
+                                    </div>
+                                    <FormMessage />
+                                  </FormItem>
+                                )}
+                              />
+                            )}
+                          </FormItem>
+                        );
+                      }}
+                    />
+                    <div className="grid grid-cols-2 gap-3">
+                      <FormField
+                        control={form.control}
+                        name={`itens.${index}.horarioInicio`}
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Horário início</FormLabel>
+                            <FormControl>
+                              <Input type="time" {...field} />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                      <FormField
+                        control={form.control}
+                        name={`itens.${index}.horarioTermino`}
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Horário término</FormLabel>
+                            <FormControl>
+                              <Input type="time" {...field} />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <FormField
+                        control={form.control}
+                        name={`itens.${index}.minAnexos`}
+                        render={({ field }) => (
+                          <FormItem className="rounded-lg border border-border p-3">
                             <FormLabel className="flex items-center gap-1.5">
                               <Paperclip className="size-3.5" />
-                              Anexos obrigatórios para concluir
+                              Anexos mínimos
                             </FormLabel>
+                            <FormControl>
+                              <Input
+                                type="number"
+                                min={0}
+                                max={50}
+                                inputMode="numeric"
+                                className="w-16 text-center"
+                                value={field.value}
+                                onChange={(e) => field.onChange(Number(e.target.value) || 0)}
+                                onBlur={field.onBlur}
+                                name={field.name}
+                                ref={field.ref}
+                              />
+                            </FormControl>
                             <p className="text-xs text-muted-foreground">
-                              0 = opcional. Ex.: 2 exige dois arquivos (foto, vídeo ou documento).
+                              0 = opcional. Exige esse tanto para concluir.
                             </p>
-                          </div>
-                          <FormControl>
-                            <Input
-                              type="number"
-                              min={0}
-                              max={10}
-                              inputMode="numeric"
-                              className="w-16 text-center"
-                              value={field.value}
-                              onChange={(e) => field.onChange(Number(e.target.value) || 0)}
-                              onBlur={field.onBlur}
-                              name={field.name}
-                              ref={field.ref}
-                            />
-                          </FormControl>
-                        </FormItem>
-                      )}
-                    />
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                      <FormField
+                        control={form.control}
+                        name={`itens.${index}.maxAnexos`}
+                        render={({ field }) => (
+                          <FormItem className="rounded-lg border border-border p-3">
+                            <FormLabel className="flex items-center gap-1.5">
+                              <Paperclip className="size-3.5" />
+                              Anexos máximos
+                            </FormLabel>
+                            <FormControl>
+                              <Input
+                                type="number"
+                                min={0}
+                                max={50}
+                                inputMode="numeric"
+                                className="w-16 text-center"
+                                value={field.value}
+                                onChange={(e) => field.onChange(Number(e.target.value) || 0)}
+                                onBlur={field.onBlur}
+                                name={field.name}
+                                ref={field.ref}
+                              />
+                            </FormControl>
+                            <p className="text-xs text-muted-foreground">
+                              0 = sem limite. Não deixa enviar além desse total.
+                            </p>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                    </div>
                     <FormField
                       control={form.control}
                       name={`itens.${index}.recorrencia`}
