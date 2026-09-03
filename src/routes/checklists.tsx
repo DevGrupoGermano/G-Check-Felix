@@ -59,6 +59,7 @@ import {
 } from "@/lib/dias-desativados";
 import {
   checklistRodaNoDia,
+  checklistVigenteNoDia,
   descricaoAgenda,
   ehResponsavel,
   itemRodaNoDia,
@@ -180,6 +181,7 @@ function checklistDeSnapshot(e: ChecklistExecucaoRow, vivo: Checklist | undefine
     reabreAutomatico: vivo?.reabreAutomatico ?? false,
     ...(vivo?.reabreIntervaloMin ? { reabreIntervaloMin: vivo.reabreIntervaloMin } : {}),
     ...descricaoAgenda(itens),
+    criadoEm: vivo?.criadoEm ?? e.data,
     itens,
   };
 }
@@ -1628,7 +1630,10 @@ function ChecklistsPage() {
                 checklists.find((c) => c.id === e.checklist_id),
               ),
             )
-          : minhasChecklists.map(recortarDia).map(checklistPendente)
+          : minhasChecklists
+              .filter((c) => checklistVigenteNoDia(c, dataAlvo))
+              .map(recortarDia)
+              .map(checklistPendente)
   ).filter((c) => c.itens.length > 0);
 
   // Recorte por setor da rotina e por responsável de algum item — vale para

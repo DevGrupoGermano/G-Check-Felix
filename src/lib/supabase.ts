@@ -35,6 +35,8 @@ export interface ChecklistRow {
   reabre_automatico: boolean;
   /** Intervalo em minutos entre as reaberturas — usado quando reabre_automatico. */
   reabre_intervalo_min: number | null;
+  /** Timestamptz de criação (default now()). Marca a partir de quando a rotina existe. */
+  created_at: string;
 }
 
 /** Modo de recorrência de uma atividade (item). */

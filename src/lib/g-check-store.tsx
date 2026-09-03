@@ -8,7 +8,7 @@ import {
   type ChecklistItemRow,
   type ChecklistRow,
 } from "@/lib/supabase";
-import { dataDoIso } from "@/lib/utils";
+import { dataDoIso, isoDoDia } from "@/lib/utils";
 import { itemRodaNoDia, recorrencias, type Recorrencia } from "@/lib/recorrencia";
 import { useAuth } from "@/lib/auth-store";
 import { HISTORICO_QUERY_KEY, reabrirAutomaticas, rolloverPendente } from "@/lib/historico";
@@ -126,6 +126,9 @@ export interface Checklist {
   horarioTermino?: string;
   /** "HH:MM" — horário limite para concluir; passou dele e não terminou = "atrasada". */
   tempoLimite?: string;
+  /** Data de criação da rotina ("yyyy-MM-dd"). Antes disso ela não existia — o
+   *  calendário/histórico não devem projetá-la para dias anteriores. */
+  criadoEm: string;
   itens: ChecklistItem[];
 }
 
@@ -265,6 +268,7 @@ async function fetchChecklists(): Promise<Checklist[]> {
           : {}),
         ...descricaoAgenda(itens),
         ...(row.tempo_limite ? { tempoLimite: row.tempo_limite.slice(0, 5) } : {}),
+        criadoEm: (row.created_at ?? "").slice(0, 10),
         itens,
       };
     })
@@ -953,6 +957,17 @@ export function resumoDe(agregados: AgregadoTarefas[], chave: string): AgregadoT
  */
 export function checklistRodaNoDia(c: Checklist, data: Date = new Date()): boolean {
   return c.itens.some((i) => itemRodaNoDia(i, data));
+}
+
+/**
+ * A rotina já existia nesta data? A recorrência (semanal/quinzenal/mensal) se
+ * repete "para sempre" nos dois sentidos do tempo; sem essa checagem o
+ * calendário projeta a rotina em dias anteriores à sua criação — dias em que
+ * ela nunca existiu. `criadoEm` pode vir vazio (dado antigo): aí não trava.
+ */
+export function checklistVigenteNoDia(c: Checklist, data: Date): boolean {
+  if (!c.criadoEm) return true;
+  return isoDoDia(data) >= c.criadoEm;
 }
 
 export type ChecklistEstado = "concluido" | "em_andamento" | "pendente" | "atrasada";

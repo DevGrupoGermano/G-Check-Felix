@@ -3,7 +3,11 @@ import { ArrowLeft, ChevronLeft, ChevronRight } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { cn, dataDoIso, isoDoDia } from "@/lib/utils";
-import { checklistRodaNoDia, type Checklist } from "@/lib/g-check-store";
+import {
+  checklistRodaNoDia,
+  checklistVigenteNoDia,
+  type Checklist,
+} from "@/lib/g-check-store";
 
 const fmtMes = new Intl.DateTimeFormat("pt-BR", { month: "long", year: "numeric" });
 const CABECALHO = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
@@ -31,7 +35,9 @@ function celulasDoMes(ref: Date): Date[] {
  */
 function rotinasDoDia(checklists: Checklist[], date: Date): Checklist[] {
   return checklists
-    .filter((c) => c.ativo && checklistRodaNoDia(c, date))
+    .filter(
+      (c) => c.ativo && checklistVigenteNoDia(c, date) && checklistRodaNoDia(c, date),
+    )
     .sort(
       (a, b) =>
         (a.horarioInicio ?? "99:99").localeCompare(b.horarioInicio ?? "99:99") ||
