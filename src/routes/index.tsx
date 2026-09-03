@@ -747,8 +747,16 @@ function Dashboard() {
                       <div className="min-w-0">
                         <p className="truncate text-sm font-medium">{c.nome}</p>
                         <p className="text-xs text-muted-foreground">
-                          {c.turno} · {c.horario}
-                          {c.tempoLimite && ` · até ${c.tempoLimite}`}
+                          {[
+                            c.turnos.join(" · "),
+                            c.horarioInicio &&
+                              (c.horarioTermino
+                                ? `${c.horarioInicio}–${c.horarioTermino}`
+                                : c.horarioInicio),
+                            c.tempoLimite && `até ${c.tempoLimite}`,
+                          ]
+                            .filter(Boolean)
+                            .join(" · ")}
                         </p>
                       </div>
                       <Badge

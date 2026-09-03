@@ -1,7 +1,21 @@
 import { supabase, type ChecklistExecucaoRow } from "@/lib/supabase";
 import { isoDoDia } from "@/lib/utils";
 import { itemRodaNoDia } from "@/lib/recorrencia";
-import type { Checklist } from "@/lib/g-check-store";
+import { limiteDaRotina, type Checklist } from "@/lib/g-check-store";
+
+const ORDEM_TURNO: Record<string, number> = { Manhã: 0, Tarde: 1, Noite: 2 };
+
+/** Turnos + primeiro horário de início a partir dos itens do snapshot. */
+export function agendaDoSnapshot(e: ChecklistExecucaoRow): { turno: string; horario: string } {
+  const inicios = (e.itens ?? [])
+    .map((i) => i.horario_inicio ?? undefined)
+    .filter((v): v is string => !!v)
+    .sort();
+  const turnos = [
+    ...new Set((e.itens ?? []).map((i) => i.turno ?? undefined).filter((v): v is string => !!v)),
+  ].sort((a, b) => (ORDEM_TURNO[a] ?? 9) - (ORDEM_TURNO[b] ?? 9));
+  return { turno: turnos.join(" · "), horario: (inicios[0] ?? "").slice(0, 5) };
+}
 
 export const HISTORICO_QUERY_KEY = ["historico"] as const;
 
@@ -16,7 +30,7 @@ export async function fetchExecucoes(
     .gte("data", deISO)
     .lte("data", ateISO)
     .order("data", { ascending: true })
-    .order("horario", { ascending: true })
+    .order("nome", { ascending: true })
     .returns<ChecklistExecucaoRow[]>();
   if (error) throw error;
   return data ?? [];
@@ -28,6 +42,16 @@ export async function fetchExecucoes(
  */
 export async function rolloverPendente(): Promise<void> {
   const { error } = await supabase.rpc("rollover_pendente");
+  if (error) throw error;
+}
+
+/**
+ * Reabre (volta para 'pendente') as rotinas com reabertura automática cujo
+ * intervalo já venceu. Idempotente no servidor — o pg_cron cobre o caminho
+ * normal; o client chama de tempos em tempos como rede de segurança.
+ */
+export async function reabrirAutomaticas(): Promise<void> {
+  const { error } = await supabase.rpc("reabrir_automaticas");
   if (error) throw error;
 }
 
@@ -101,13 +125,17 @@ export function montarHistorico(opts: {
     } else if (iso < hojeISO) {
       entradas = (exPorDia.get(iso) ?? [])
         .slice()
-        .sort((a, b) => a.horario.localeCompare(b.horario))
-        .map((e) => ({
+        .map((e) => ({ e, agenda: agendaDoSnapshot(e) }))
+        .sort(
+          (a, b) =>
+            a.agenda.horario.localeCompare(b.agenda.horario) || a.e.nome.localeCompare(b.e.nome),
+        )
+        .map(({ e, agenda }) => ({
           checklistId: e.checklist_id,
           nome: e.nome,
           setor: e.setor,
-          turno: e.turno,
-          horario: e.horario.slice(0, 5),
+          turno: agenda.turno,
+          horario: agenda.horario,
           total: e.total_itens,
           feitos: e.itens_concluidos,
           status: e.completa ? ("completa" as const) : ("incompleta" as const),
@@ -118,13 +146,18 @@ export function montarHistorico(opts: {
       entradas = ativas
         .map((c) => ({ c, itensDoDia: c.itens.filter((i) => itemRodaNoDia(i, diaRef)) }))
         .filter(({ itensDoDia }) => itensDoDia.length > 0)
-        .sort((a, b) => a.c.horario.localeCompare(b.c.horario))
+        .sort(
+          (a, b) =>
+            (a.c.horarioInicio ?? "99:99").localeCompare(b.c.horarioInicio ?? "99:99") ||
+            a.c.nome.localeCompare(b.c.nome),
+        )
         .map(({ c, itensDoDia }) => {
           const total = itensDoDia.length;
           const feitos = itensDoDia.filter((i) => i.status === "concluido").length;
           const completo = total > 0 && feitos === total;
-          const limite = c.tempoLimite
-            ? Number(c.tempoLimite.slice(0, 2)) * 60 + Number(c.tempoLimite.slice(3, 5))
+          const limiteStr = limiteDaRotina(c);
+          const limite = limiteStr
+            ? Number(limiteStr.slice(0, 2)) * 60 + Number(limiteStr.slice(3, 5))
             : null;
           const atrasada = !completo && limite !== null && agoraMin > limite;
           const status: StatusHistorico =
@@ -141,8 +174,8 @@ export function montarHistorico(opts: {
             checklistId: c.id,
             nome: c.nome,
             setor: c.setor,
-            turno: c.turno,
-            horario: c.horario,
+            turno: c.turnos.join(" · "),
+            horario: c.horarioInicio ?? "",
             total,
             feitos,
             status,

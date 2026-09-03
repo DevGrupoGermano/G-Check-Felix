@@ -28,15 +28,20 @@ export interface ChecklistRow {
   id: string;
   nome: string;
   setor: string;
-  turno: string;
-  horario: string;
   ativo: boolean;
   /** "HH:MM:SS" ou null — horário limite para concluir a rotina. */
   tempo_limite: string | null;
+  /** Reabre os itens sozinha ao longo do dia (ex.: giro da Segurança a cada 20 min). */
+  reabre_automatico: boolean;
+  /** Intervalo em minutos entre as reaberturas — usado quando reabre_automatico. */
+  reabre_intervalo_min: number | null;
 }
 
 /** Modo de recorrência de uma atividade (item). */
 export type RecorrenciaRow = "semanal" | "quinzenal" | "mensal";
+
+/** Tipo de uma atividade: marca simples ou enquete com opções de resposta. */
+export type TipoTarefaRow = "checklist" | "enquete";
 
 export interface ChecklistItemRow {
   id: string;
@@ -46,8 +51,23 @@ export interface ChecklistItemRow {
   responsavel: string;
   status: string;
   posicao: number;
+  /** 'checklist' = marca feito/não feito; 'enquete' = escolhe uma opção. */
+  tipo_tarefa: TipoTarefaRow;
+  /** Opções da enquete (ex.: ["SIM","NÃO"]); vazio quando tipo_tarefa = 'checklist'. */
+  resposta_opcoes: string[];
+  /** Opção escolhida na execução; limpa no rollover. */
+  resposta: string | null;
+  /** Motivo/observação informado na execução; limpo no rollover. */
+  justificativa: string | null;
+  /** Turno da atividade (por item, não por rotina). */
+  turno: string | null;
+  /** "HH:MM:SS" — janela de execução da atividade. */
+  horario_inicio: string | null;
+  horario_termino: string | null;
   /** Quantos anexos são obrigatórios para concluir (0 = opcional). */
   min_anexos: number;
+  /** Teto de anexos (null = sem limite). */
+  max_anexos: number | null;
   /** Anexos enviados no dia; limpos no rollover. */
   anexos: Anexo[];
   /** Modo de recorrência da atividade. */
@@ -79,9 +99,9 @@ export interface ChecklistExecucaoRow {
   data: string;
   nome: string;
   setor: string;
-  turno: string;
-  /** "HH:MM:SS". */
-  horario: string;
+  /** Sempre null desde 20260905 — turno/horário passaram para os itens. */
+  turno: string | null;
+  horario: string | null;
   total_itens: number;
   itens_concluidos: number;
   completa: boolean;
@@ -89,7 +109,15 @@ export interface ChecklistExecucaoRow {
     titulo: string;
     responsavel: string;
     status: string;
+    tipo_tarefa?: TipoTarefaRow;
+    resposta_opcoes?: string[];
+    resposta?: string | null;
+    justificativa?: string | null;
+    turno?: string | null;
+    horario_inicio?: string | null;
+    horario_termino?: string | null;
     min_anexos?: number;
+    max_anexos?: number | null;
     anexos?: Anexo[];
   }[];
   registrado_em: string;

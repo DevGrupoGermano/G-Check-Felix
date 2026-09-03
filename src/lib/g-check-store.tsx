@@ -11,7 +11,7 @@ import {
 import { dataDoIso } from "@/lib/utils";
 import { itemRodaNoDia, recorrencias, type Recorrencia } from "@/lib/recorrencia";
 import { useAuth } from "@/lib/auth-store";
-import { HISTORICO_QUERY_KEY, rolloverPendente } from "@/lib/historico";
+import { HISTORICO_QUERY_KEY, reabrirAutomaticas, rolloverPendente } from "@/lib/historico";
 
 export { itemRodaNoDia, recorrencias, type Recorrencia };
 
@@ -19,6 +19,25 @@ export type ItemStatus = "pendente" | "concluido";
 
 export const turnos = ["Manhã", "Tarde", "Noite"] as const;
 export type Turno = (typeof turnos)[number];
+
+const ORDEM_TURNO: Record<string, number> = { Manhã: 0, Tarde: 1, Noite: 2 };
+
+/**
+ * Turno de uma atividade a partir do horário de início "HH:MM":
+ * 04:00–10:59 → Manhã · 11:00–17:59 → Tarde · 18:00–03:59 → Noite.
+ */
+export function turnoDoHorario(hhmm: string | null | undefined): Turno | null {
+  if (!hhmm) return null;
+  const h = Number(hhmm.slice(0, 2));
+  if (Number.isNaN(h)) return null;
+  if (h >= 4 && h < 11) return "Manhã";
+  if (h >= 11 && h < 18) return "Tarde";
+  return "Noite";
+}
+
+/** Tipos de atividade: marca simples ou enquete com opções de resposta. */
+export const tiposTarefa = ["checklist", "enquete"] as const;
+export type TipoTarefa = (typeof tiposTarefa)[number];
 
 /**
  * Dias da semana em que a rotina roda. O valor é o índice JS de Date.getDay()
@@ -64,8 +83,23 @@ export interface ChecklistItem {
   detalhe?: string;
   status: ItemStatus;
   responsavel: string;
+  /** 'checklist' = marca feito/não feito; 'enquete' = escolhe uma opção + justifica. */
+  tipoTarefa: TipoTarefa;
+  /** Opções da enquete (ex.: ["SIM","NÃO"]); vazio quando tipoTarefa = "checklist". */
+  respostaOpcoes: string[];
+  /** Opção escolhida hoje; limpa no rollover diário. */
+  resposta: string | null;
+  /** Motivo/observação informado hoje; limpo no rollover diário. */
+  justificativa: string | null;
+  /** Turno da atividade (por item). Deriva de `horarioInicio` quando ausente. */
+  turno: string | null;
+  /** "HH:MM" — janela de execução da atividade. */
+  horarioInicio: string | null;
+  horarioTermino: string | null;
   /** Quantos anexos são obrigatórios para concluir a tarefa (0 = opcional). */
   minAnexos: number;
+  /** Teto de anexos (null = sem limite; não deixa passar). */
+  maxAnexos: number | null;
   /** Anexos enviados hoje (foto, vídeo ou documento); limpos no rollover diário. */
   anexos: Anexo[];
   /** Modo de recorrência da atividade. */
@@ -80,9 +114,16 @@ export interface Checklist {
   id: string;
   nome: string;
   setor: string;
-  turno: string;
-  horario: string;
   ativo: boolean;
+  /** Reabre os itens sozinha ao longo do dia (giro da Segurança etc.). */
+  reabreAutomatico: boolean;
+  /** Minutos entre as reaberturas — só usado quando reabreAutomatico. */
+  reabreIntervaloMin?: number;
+  /** Turnos que a rotina cobre — derivado dos itens, não gravado. */
+  turnos: string[];
+  /** Faixa de horário derivada dos itens ("HH:MM"), só para descrição. */
+  horarioInicio?: string;
+  horarioTermino?: string;
   /** "HH:MM" — horário limite para concluir; passou dele e não terminou = "atrasada". */
   tempoLimite?: string;
   itens: ChecklistItem[];
@@ -94,8 +135,15 @@ export interface ItemInput {
   titulo: string;
   detalhe?: string;
   responsavel: string;
+  tipoTarefa: TipoTarefa;
+  respostaOpcoes: string[];
+  turno: string | null;
+  horarioInicio: string | null;
+  horarioTermino: string | null;
   /** Quantos anexos são obrigatórios para concluir a tarefa (0 = opcional). */
   minAnexos: number;
+  /** Teto de anexos (null = sem limite). */
+  maxAnexos: number | null;
   recorrencia: Recorrencia;
   diasSemana: number[];
   inicio: string | null;
@@ -104,12 +152,35 @@ export interface ItemInput {
 export interface ChecklistInput {
   nome: string;
   setor: string;
-  turno: string;
-  horario: string;
   ativo: boolean;
   /** "HH:MM" ou undefined. */
   tempoLimite?: string;
+  reabreAutomatico: boolean;
+  reabreIntervaloMin?: number;
   itens: ItemInput[];
+}
+
+/** Turnos cobertos + faixa de horário de uma rotina, derivados dos itens. */
+export function descricaoAgenda(itens: Pick<ChecklistItem, "turno" | "horarioInicio" | "horarioTermino">[]) {
+  const inicios = itens
+    .map((i) => i.horarioInicio)
+    .filter((v): v is string => !!v)
+    .sort();
+  const terminos = itens
+    .map((i) => i.horarioTermino)
+    .filter((v): v is string => !!v)
+    .sort();
+  const turnosSet = new Set<string>();
+  for (const i of itens) {
+    const t = i.turno ?? turnoDoHorario(i.horarioInicio);
+    if (t) turnosSet.add(t);
+  }
+  const turnosOrd = [...turnosSet].sort((a, b) => (ORDEM_TURNO[a] ?? 9) - (ORDEM_TURNO[b] ?? 9));
+  return {
+    turnos: turnosOrd,
+    ...(inicios[0] ? { horarioInicio: inicios[0] } : {}),
+    ...(terminos.length ? { horarioTermino: terminos[terminos.length - 1] } : {}),
+  };
 }
 
 /** Gera um id legível a partir do nome (usado como PK da checklist no Supabase). */
@@ -120,6 +191,26 @@ function slugify(texto: string) {
     .replace(new RegExp("[\\u0300-\\u036f]", "g"), "")
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/(^-|-$)/g, "");
+}
+
+/** Campos de um item no formato do banco, comuns a criação e edição. */
+function camposItemBanco(it: ItemInput) {
+  const enquete = it.tipoTarefa === "enquete";
+  return {
+    titulo: it.titulo,
+    detalhe: it.detalhe?.trim() || null,
+    responsavel: it.responsavel,
+    tipo_tarefa: it.tipoTarefa,
+    resposta_opcoes: enquete ? it.respostaOpcoes : [],
+    turno: it.turno ?? turnoDoHorario(it.horarioInicio),
+    horario_inicio: it.horarioInicio || null,
+    horario_termino: it.horarioTermino || null,
+    min_anexos: it.minAnexos,
+    max_anexos: it.maxAnexos,
+    recorrencia: it.recorrencia,
+    dias_semana: it.recorrencia === "semanal" ? it.diasSemana : [],
+    inicio: it.recorrencia === "semanal" ? null : it.inicio,
+  };
 }
 
 const QUERY_KEY = ["checklists"] as const;
@@ -135,33 +226,53 @@ async function fetchChecklists(): Promise<Checklist[]> {
   const { data, error } = await supabase
     .from("checklists")
     .select("*, checklist_items(*)")
-    .order("horario", { ascending: true })
+    .order("nome", { ascending: true })
     .order("posicao", { referencedTable: "checklist_items", ascending: true })
     .returns<ChecklistWithItems[]>();
 
   if (error) throw error;
 
-  return (data ?? []).map((row) => ({
-    id: row.id,
-    nome: row.nome,
-    setor: row.setor,
-    turno: row.turno,
-    horario: row.horario.slice(0, 5),
-    ativo: row.ativo,
-    ...(row.tempo_limite ? { tempoLimite: row.tempo_limite.slice(0, 5) } : {}),
-    itens: row.checklist_items.map((it) => ({
-      id: it.id,
-      titulo: it.titulo,
-      status: it.status as ItemStatus,
-      responsavel: it.responsavel,
-      minAnexos: it.min_anexos ?? 0,
-      anexos: it.anexos ?? [],
-      recorrencia: (it.recorrencia ?? "semanal") as Recorrencia,
-      diasSemana: [...(it.dias_semana ?? [])].sort((a, b) => a - b),
-      inicio: it.inicio ?? null,
-      ...(it.detalhe ? { detalhe: it.detalhe } : {}),
-    })),
-  }));
+  return (data ?? [])
+    .map((row) => {
+      const itens: ChecklistItem[] = row.checklist_items.map((it) => ({
+        id: it.id,
+        titulo: it.titulo,
+        status: it.status as ItemStatus,
+        responsavel: it.responsavel,
+        tipoTarefa: (it.tipo_tarefa ?? "checklist") as TipoTarefa,
+        respostaOpcoes: [...(it.resposta_opcoes ?? [])],
+        resposta: it.resposta ?? null,
+        justificativa: it.justificativa ?? null,
+        turno: it.turno ?? turnoDoHorario(it.horario_inicio?.slice(0, 5) ?? null),
+        horarioInicio: it.horario_inicio ? it.horario_inicio.slice(0, 5) : null,
+        horarioTermino: it.horario_termino ? it.horario_termino.slice(0, 5) : null,
+        minAnexos: it.min_anexos ?? 0,
+        maxAnexos: it.max_anexos ?? null,
+        anexos: it.anexos ?? [],
+        recorrencia: (it.recorrencia ?? "semanal") as Recorrencia,
+        diasSemana: [...(it.dias_semana ?? [])].sort((a, b) => a - b),
+        inicio: it.inicio ?? null,
+        ...(it.detalhe ? { detalhe: it.detalhe } : {}),
+      }));
+      return {
+        id: row.id,
+        nome: row.nome,
+        setor: row.setor,
+        ativo: row.ativo,
+        reabreAutomatico: row.reabre_automatico ?? false,
+        ...(row.reabre_intervalo_min
+          ? { reabreIntervaloMin: row.reabre_intervalo_min }
+          : {}),
+        ...descricaoAgenda(itens),
+        ...(row.tempo_limite ? { tempoLimite: row.tempo_limite.slice(0, 5) } : {}),
+        itens,
+      };
+    })
+    .sort(
+      (a, b) =>
+        (a.horarioInicio ?? "99:99").localeCompare(b.horarioInicio ?? "99:99") ||
+        a.nome.localeCompare(b.nome),
+    );
 }
 
 interface Ctx {
@@ -169,6 +280,10 @@ interface Ctx {
   isLoading: boolean;
   isError: boolean;
   toggleItem: (checklistId: string, itemId: string) => void;
+  /** Enquete: grava a opção escolhida (não conclui sozinho). */
+  responderEnquete: (checklistId: string, itemId: string, resposta: string) => void;
+  /** Enquete: grava a justificativa/observação do responsável. */
+  justificarItem: (checklistId: string, itemId: string, texto: string) => void;
   concluirTodos: (checklistId: string) => void;
   reabrir: (checklistId: string) => void;
   /** Sobe um arquivo para o Storage e acrescenta o anexo ao item. */
@@ -213,6 +328,29 @@ export function GCheckProvider({ children }: { children: React.ReactNode }) {
     };
   }, [session, queryClient]);
 
+  // Reabertura automática (giro da Segurança etc.): o pg_cron roda a cada minuto;
+  // aqui o client cobre a mesma janela para a tela de quem está com o app aberto.
+  React.useEffect(() => {
+    if (!session) return;
+    let vivo = true;
+    const rodar = () => {
+      reabrirAutomaticas()
+        .then(() => {
+          if (!vivo) return;
+          queryClient.invalidateQueries({ queryKey: QUERY_KEY });
+        })
+        .catch(() => {
+          /* silencioso: o pg_cron cobre o caminho normal */
+        });
+    };
+    rodar();
+    const id = window.setInterval(rodar, 60 * 1000);
+    return () => {
+      vivo = false;
+      window.clearInterval(id);
+    };
+  }, [session, queryClient]);
+
   const toggleItemMutation = useMutation({
     mutationFn: async ({ itemId, next }: { itemId: string; next: ItemStatus }) => {
       const { error } = await supabase
@@ -244,6 +382,17 @@ export function GCheckProvider({ children }: { children: React.ReactNode }) {
         );
         return;
       }
+      // Enquete: precisa de uma opção escolhida antes de concluir (trigger no
+      // banco também barra — ver migration 20260905120000).
+      if (
+        atual &&
+        atual.status !== "concluido" &&
+        atual.tipoTarefa === "enquete" &&
+        !atual.resposta
+      ) {
+        toast.error("Escolha uma resposta para concluir esta enquete.");
+        return;
+      }
 
       let next: ItemStatus = "concluido";
       // Atualização otimista: aplica a mudança no cache do React Query antes da
@@ -268,6 +417,56 @@ export function GCheckProvider({ children }: { children: React.ReactNode }) {
     [queryClient, toggleItemMutation],
   );
 
+  // Enquete: grava só a coluna alvo (resposta ou justificativa). O responsável
+  // ainda precisa concluir o item pelo checkbox depois de escolher a opção.
+  const patchItemMutation = useMutation({
+    mutationFn: async ({
+      itemId,
+      patch,
+    }: {
+      checklistId: string;
+      itemId: string;
+      patch: { resposta?: string | null; justificativa?: string | null };
+    }) => {
+      const { error } = await supabase.from("checklist_items").update(patch).eq("id", itemId);
+      if (error) throw error;
+    },
+    onError: () => {
+      toast.error("Não foi possível salvar a resposta.");
+      queryClient.invalidateQueries({ queryKey: QUERY_KEY });
+    },
+  });
+
+  const aplicarPatchNoCache = React.useCallback(
+    (checklistId: string, itemId: string, patch: Partial<ChecklistItem>) => {
+      queryClient.setQueryData<Checklist[]>(QUERY_KEY, (prev) =>
+        (prev ?? []).map((c) =>
+          c.id !== checklistId
+            ? c
+            : { ...c, itens: c.itens.map((i) => (i.id === itemId ? { ...i, ...patch } : i)) },
+        ),
+      );
+    },
+    [queryClient],
+  );
+
+  const responderEnquete = React.useCallback(
+    (checklistId: string, itemId: string, resposta: string) => {
+      aplicarPatchNoCache(checklistId, itemId, { resposta });
+      patchItemMutation.mutate({ checklistId, itemId, patch: { resposta } });
+    },
+    [aplicarPatchNoCache, patchItemMutation],
+  );
+
+  const justificarItem = React.useCallback(
+    (checklistId: string, itemId: string, texto: string) => {
+      const valor = texto.trim() ? texto : null;
+      aplicarPatchNoCache(checklistId, itemId, { justificativa: valor });
+      patchItemMutation.mutate({ checklistId, itemId, patch: { justificativa: valor } });
+    },
+    [aplicarPatchNoCache, patchItemMutation],
+  );
+
   const concluirTodosMutation = useMutation({
     mutationFn: async (checklistId: string) => {
       const { error } = await supabase
@@ -286,12 +485,24 @@ export function GCheckProvider({ children }: { children: React.ReactNode }) {
     (checklistId: string) => {
       // "Concluir rotina" não fura a regra de anexos: se algum item pendente
       // ainda não tem os anexos mínimos, aborta e avisa quais faltam.
-      const pendentesSemAnexo = (queryClient.getQueryData<Checklist[]>(QUERY_KEY) ?? [])
-        .find((c) => c.id === checklistId)
-        ?.itens.filter((i) => i.status !== "concluido" && i.anexos.length < i.minAnexos);
+      const itens = (queryClient.getQueryData<Checklist[]>(QUERY_KEY) ?? []).find(
+        (c) => c.id === checklistId,
+      )?.itens;
+      const pendentesSemAnexo = itens?.filter(
+        (i) => i.status !== "concluido" && i.anexos.length < i.minAnexos,
+      );
       if (pendentesSemAnexo && pendentesSemAnexo.length > 0) {
         toast.error(
           `Faltam anexos em: ${pendentesSemAnexo.map((i) => i.titulo).join(", ")}`,
+        );
+        return;
+      }
+      const enquetesSemResposta = itens?.filter(
+        (i) => i.status !== "concluido" && i.tipoTarefa === "enquete" && !i.resposta,
+      );
+      if (enquetesSemResposta && enquetesSemResposta.length > 0) {
+        toast.error(
+          `Falta responder: ${enquetesSemResposta.map((i) => i.titulo).join(", ")}`,
         );
         return;
       }
@@ -370,6 +581,13 @@ export function GCheckProvider({ children }: { children: React.ReactNode }) {
       itemId: string;
       arquivo: File;
     }) => {
+      // Teto de anexos: bloqueia antes do upload (trigger no banco também barra).
+      const item = (queryClient.getQueryData<Checklist[]>(QUERY_KEY) ?? [])
+        .find((c) => c.id === checklistId)
+        ?.itens.find((i) => i.id === itemId);
+      if (item?.maxAnexos != null && item.anexos.length >= item.maxAnexos) {
+        throw new Error(`Este item aceita no máximo ${item.maxAnexos} arquivo(s).`);
+      }
       const ext =
         arquivo.name.split(".").pop()?.toLowerCase().replace(/[^a-z0-9]/g, "") || "bin";
       const caminho = `${checklistId}/${itemId}-${Date.now()}-${Math.random()
@@ -404,7 +622,8 @@ export function GCheckProvider({ children }: { children: React.ReactNode }) {
       setAnexosNoCache(checklistId, itemId, proximos);
       toast.success("Arquivo anexado.");
     },
-    onError: () => toast.error("Não foi possível anexar o arquivo."),
+    onError: (err) =>
+      toast.error(err instanceof Error ? err.message : "Não foi possível anexar o arquivo."),
   });
 
   const removerAnexoMutation = useMutation({
@@ -460,10 +679,12 @@ export function GCheckProvider({ children }: { children: React.ReactNode }) {
         id,
         nome: input.nome,
         setor: input.setor,
-        turno: input.turno,
-        horario: input.horario,
         ativo: input.ativo,
         tempo_limite: input.tempoLimite ?? null,
+        reabre_automatico: input.reabreAutomatico,
+        reabre_intervalo_min: input.reabreAutomatico
+          ? (input.reabreIntervaloMin ?? null)
+          : null,
       });
       if (checklistError) throw checklistError;
 
@@ -471,16 +692,10 @@ export function GCheckProvider({ children }: { children: React.ReactNode }) {
       const itensPayload = input.itens.map((it, index) => ({
         id: `${id}-${index + 1}`,
         checklist_id: id,
-        titulo: it.titulo,
-        detalhe: it.detalhe?.trim() || null,
-        responsavel: it.responsavel,
+        ...camposItemBanco(it),
         status: "pendente",
         posicao: index + 1,
-        min_anexos: it.minAnexos,
         anexos: [],
-        recorrencia: it.recorrencia,
-        dias_semana: it.recorrencia === "semanal" ? it.diasSemana : [],
-        inicio: it.recorrencia === "semanal" ? null : it.inicio,
       }));
 
       const { error: itensError } = await supabase.from("checklist_items").insert(itensPayload);
@@ -528,16 +743,10 @@ export function GCheckProvider({ children }: { children: React.ReactNode }) {
         return {
           id,
           checklist_id: checklistId,
-          titulo: it.titulo,
-          detalhe: it.detalhe?.trim() || null,
-          responsavel: it.responsavel,
+          ...camposItemBanco(it),
           status: statusPorId.get(id) ?? "pendente",
           posicao: index + 1,
-          min_anexos: it.minAnexos,
           anexos: anexosPorId.get(id) ?? [],
-          recorrencia: it.recorrencia,
-          dias_semana: it.recorrencia === "semanal" ? it.diasSemana : [],
-          inicio: it.recorrencia === "semanal" ? null : it.inicio,
         };
       });
 
@@ -550,10 +759,12 @@ export function GCheckProvider({ children }: { children: React.ReactNode }) {
         .update({
           nome: input.nome,
           setor: input.setor,
-          turno: input.turno,
-          horario: input.horario,
           ativo: input.ativo,
           tempo_limite: input.tempoLimite ?? null,
+          reabre_automatico: input.reabreAutomatico,
+          reabre_intervalo_min: input.reabreAutomatico
+            ? (input.reabreIntervaloMin ?? null)
+            : null,
         })
         .eq("id", checklistId);
       if (checklistError) throw checklistError;
@@ -611,6 +822,8 @@ export function GCheckProvider({ children }: { children: React.ReactNode }) {
       isLoading: query.isLoading,
       isError: query.isError,
       toggleItem,
+      responderEnquete,
+      justificarItem,
       concluirTodos,
       reabrir,
       anexarArquivo,
@@ -624,6 +837,8 @@ export function GCheckProvider({ children }: { children: React.ReactNode }) {
       query.isLoading,
       query.isError,
       toggleItem,
+      responderEnquete,
+      justificarItem,
       concluirTodos,
       reabrir,
       anexarArquivo,
@@ -751,15 +966,21 @@ function minutosDoDia(v: string | Date): number {
   return v.getHours() * 60 + v.getMinutes();
 }
 
+/** Horário limite efetivo da rotina: `tempoLimite` manual ou o último término dos itens. */
+export function limiteDaRotina(c: Pick<Checklist, "tempoLimite" | "horarioTermino">): string | undefined {
+  return c.tempoLimite ?? c.horarioTermino;
+}
+
 /**
  * Deriva o estado da checklist a partir do progresso — não é um campo salvo no
- * banco. "atrasada": tem tempo_limite, já passou dele e a rotina não terminou.
- * `agora` é injetável para testes; por padrão usa o relógio local.
+ * banco. "atrasada": passou do horário limite (tempo_limite manual ou o último
+ * término dos itens) e a rotina não terminou. `agora` é injetável para testes.
  */
 export function estado(c: Checklist, agora: Date = new Date()): ChecklistEstado {
   const { feitos, total } = progresso(c);
   if (total > 0 && feitos === total) return "concluido";
-  if (c.tempoLimite && minutosDoDia(agora) > minutosDoDia(c.tempoLimite)) return "atrasada";
+  const limite = limiteDaRotina(c);
+  if (limite && minutosDoDia(agora) > minutosDoDia(limite)) return "atrasada";
   if (feitos === 0) return "pendente";
   return "em_andamento";
 }
@@ -778,7 +999,10 @@ export const estadoLabel: Record<ChecklistEstado, string> = {
  * A partir do horário (mesmo sem nenhum item feito) ela passa a contar.
  */
 export function naoIniciada(c: Checklist, agora: Date = new Date()): boolean {
-  return estado(c, agora) === "pendente" && minutosDoDia(agora) < minutosDoDia(c.horario);
+  if (estado(c, agora) !== "pendente") return false;
+  // Sem horário de início nos itens não há "janela futura": a rotina já conta.
+  if (!c.horarioInicio) return false;
+  return minutosDoDia(agora) < minutosDoDia(c.horarioInicio);
 }
 
 /** Compara o responsável do item com o nome de perfil informado (ignora caixa e espaços). */
