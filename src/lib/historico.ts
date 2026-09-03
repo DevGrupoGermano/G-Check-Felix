@@ -1,5 +1,6 @@
 import { supabase, type ChecklistExecucaoRow } from "@/lib/supabase";
 import { isoDoDia } from "@/lib/utils";
+import { itemRodaNoDia } from "@/lib/recorrencia";
 import type { Checklist } from "@/lib/g-check-store";
 
 export const HISTORICO_QUERY_KEY = ["historico"] as const;
@@ -112,15 +113,15 @@ export function montarHistorico(opts: {
           status: e.completa ? ("completa" as const) : ("incompleta" as const),
         }));
     } else {
-      const dow = cursor.getDay();
+      const diaRef = new Date(cursor);
       const agoraMin = new Date().getHours() * 60 + new Date().getMinutes();
       entradas = ativas
-        .filter((c) => c.diasSemana.includes(dow))
-        .slice()
-        .sort((a, b) => a.horario.localeCompare(b.horario))
-        .map((c) => {
-          const total = c.itens.length;
-          const feitos = c.itens.filter((i) => i.status === "concluido").length;
+        .map((c) => ({ c, itensDoDia: c.itens.filter((i) => itemRodaNoDia(i, diaRef)) }))
+        .filter(({ itensDoDia }) => itensDoDia.length > 0)
+        .sort((a, b) => a.c.horario.localeCompare(b.c.horario))
+        .map(({ c, itensDoDia }) => {
+          const total = itensDoDia.length;
+          const feitos = itensDoDia.filter((i) => i.status === "concluido").length;
           const completo = total > 0 && feitos === total;
           const limite = c.tempoLimite
             ? Number(c.tempoLimite.slice(0, 2)) * 60 + Number(c.tempoLimite.slice(3, 5))

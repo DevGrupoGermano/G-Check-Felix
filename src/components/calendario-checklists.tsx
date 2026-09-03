@@ -3,7 +3,7 @@ import { ArrowLeft, ChevronLeft, ChevronRight } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { cn, dataDoIso, isoDoDia } from "@/lib/utils";
-import type { Checklist } from "@/lib/g-check-store";
+import { checklistRodaNoDia, type Checklist } from "@/lib/g-check-store";
 
 const fmtMes = new Intl.DateTimeFormat("pt-BR", { month: "long", year: "numeric" });
 const CABECALHO = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
@@ -26,13 +26,12 @@ function celulasDoMes(ref: Date): Date[] {
 }
 
 /**
- * Rotinas ativas que caem no dia da semana desta data, ordenadas por horário.
- * As tarefas não têm data própria — o agendamento vive em checklist.diasSemana.
+ * Rotinas ativas com alguma atividade programada nesta data, ordenadas por
+ * horário. A recorrência vive por item (semanal/quinzenal/mensal).
  */
 function rotinasDoDia(checklists: Checklist[], date: Date): Checklist[] {
-  const dow = date.getDay();
   return checklists
-    .filter((c) => c.ativo && c.diasSemana.includes(dow))
+    .filter((c) => c.ativo && checklistRodaNoDia(c, date))
     .sort((a, b) => a.horario.localeCompare(b.horario));
 }
 

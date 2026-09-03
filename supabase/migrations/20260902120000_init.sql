@@ -361,16 +361,45 @@ create policy "admin remove setores"
 
 
 -- ----------------------------------------------------------------------------
--- [20260831120000_add_checklist_dias_semana.sql]
+-- [20260831120000_add_checklist_dias_semana.sql] (revisado em 20260904_recorrencia_por_item)
 -- ----------------------------------------------------------------------------
--- Permite definir em quais dias da semana a rotina deve ser executada.
--- Guardado como array de inteiros 0..6 na ordem exibida no formulário
--- (0 = domingo, 1 = segunda, ... 6 = sábado -> D S T Q Q S S).
--- Default = todos os dias, para as rotinas já existentes seguirem valendo
--- todo dia sem precisar de ajuste manual.
+-- Recorrência por ATIVIDADE (item), não por rotina:
+--   recorrencia  'semanal' | 'quinzenal' | 'mensal'
+--   dias_semana  smallint[] 0..6 (D S T Q Q S S) -> usado quando 'semanal'
+--   inicio       date -> data de começo, usada quando 'quinzenal'/'mensal'
+-- Default = semanal todos os dias, para as atividades já existentes seguirem
+-- valendo todo dia sem ajuste manual.
 
-alter table checklists
-  add column if not exists dias_semana smallint[] not null default '{0,1,2,3,4,5,6}';
+alter table checklist_items
+  add column if not exists recorrencia text not null default 'semanal'
+    check (recorrencia in ('semanal', 'quinzenal', 'mensal')),
+  add column if not exists dias_semana smallint[] not null default '{0,1,2,3,4,5,6}',
+  add column if not exists inicio date;
+
+-- Regra "a atividade roda na data D", compartilhada pelo rollover e pelos triggers.
+create or replace function public.item_roda_no_dia(
+  p_recorrencia text,
+  p_dias_semana smallint[],
+  p_inicio date,
+  p_alvo date
+) returns boolean
+language sql
+immutable
+as $$
+  select case p_recorrencia
+    when 'semanal' then
+      extract(dow from p_alvo)::int = any (coalesce(p_dias_semana, '{}'::smallint[]))
+    when 'quinzenal' then
+      p_inicio is not null and p_alvo >= p_inicio and ((p_alvo - p_inicio) % 14) = 0
+    when 'mensal' then
+      p_inicio is not null and p_alvo >= p_inicio
+      and extract(day from p_alvo)::int = least(
+        extract(day from p_inicio)::int,
+        extract(day from (date_trunc('month', p_alvo) + interval '1 month' - interval '1 day'))::int
+      )
+    else false
+  end
+$$;
 
 
 -- ----------------------------------------------------------------------------
@@ -379,7 +408,7 @@ alter table checklists
 -- Feriado / dia sem expediente: marca um dia inteiro como desativado. Enquanto a
 -- data de hoje estiver nesta tabela, o dashboard não cobra as pendências do dia.
 -- É reversível (o admin apaga a linha para reativar) e não altera nenhuma
--- checklist — o agendamento por dia da semana (checklists.dias_semana) continua
+-- checklist — a recorrência por atividade (checklist_items.recorrencia) continua
 -- valendo nos demais dias.
 
 create table if not exists dias_desativados (
@@ -604,13 +633,13 @@ begin
           'responsavel', ci.responsavel,
           'status', case when usar_estado then ci.status else 'pendente' end
         ) order by ci.posicao
-      ) filter (where ci.id is not null),
+      ),
       '[]'
     )
   from checklists c
-  left join checklist_items ci on ci.checklist_id = c.id
+  join checklist_items ci on ci.checklist_id = c.id
+    and public.item_roda_no_dia(ci.recorrencia, ci.dias_semana, ci.inicio, alvo)
   where c.ativo
-    and extract(dow from alvo)::int = any (c.dias_semana)
     and not exists (select 1 from dias_desativados dd where dd.data = alvo)
   group by c.id
   on conflict (checklist_id, data) do nothing;
@@ -698,10 +727,10 @@ alter table checklists add column if not exists tempo_limite time;
 -- ----------------------------------------------------------------------------
 -- [20260831170000_block_checklist_items_fora_do_dia.sql]
 -- ----------------------------------------------------------------------------
--- Reforça no banco a regra "rotina desativada quando não é o dia dela": além do
--- dia pausado (dias_desativados), um funcionário não pode mexer no status de um
--- item cuja checklist não está programada para o dia da semana de hoje
--- (checklists.dias_semana). Admin passa; o rollover diário passa pelo GUC.
+-- Reforça no banco a regra "atividade desativada quando não é o dia dela": além
+-- do dia pausado (dias_desativados), um funcionário não pode mexer no status de
+-- uma atividade cuja recorrência (por item) não cai em hoje. Admin passa; o
+-- rollover diário passa pelo GUC.
 
 create or replace function public.checklist_items_block_on_disabled_day()
 returns trigger
@@ -709,8 +738,6 @@ language plpgsql
 security definer
 set search_path = public
 as $$
-declare
-  dias smallint[];
 begin
   if coalesce(current_setting('app.bypass_item_guard', true), '') = 'on' then
     return new;
@@ -724,9 +751,8 @@ begin
     raise exception 'As rotinas de hoje estão desativadas. Fale com o administrador.';
   end if;
 
-  select dias_semana into dias from public.checklists where id = new.checklist_id;
-  if dias is not null and not (extract(dow from current_date)::int = any (dias)) then
-    raise exception 'Esta rotina não está programada para hoje.';
+  if not public.item_roda_no_dia(new.recorrencia, new.dias_semana, new.inicio, current_date) then
+    raise exception 'Esta atividade não está programada para hoje.';
   end if;
 
   return new;
@@ -797,6 +823,9 @@ begin
     or new.posicao is distinct from old.posicao
     or new.checklist_id is distinct from old.checklist_id
     or new.min_anexos is distinct from old.min_anexos
+    or new.recorrencia is distinct from old.recorrencia
+    or new.dias_semana is distinct from old.dias_semana
+    or new.inicio is distinct from old.inicio
   then
     raise exception 'Apenas administradores podem editar os itens da checklist.';
   end if;
@@ -856,13 +885,13 @@ begin
           'min_anexos', ci.min_anexos,
           'anexos', case when usar_estado then ci.anexos else '[]'::jsonb end
         ) order by ci.posicao
-      ) filter (where ci.id is not null),
+      ),
       '[]'
     )
   from checklists c
-  left join checklist_items ci on ci.checklist_id = c.id
+  join checklist_items ci on ci.checklist_id = c.id
+    and public.item_roda_no_dia(ci.recorrencia, ci.dias_semana, ci.inicio, alvo)
   where c.ativo
-    and extract(dow from alvo)::int = any (c.dias_semana)
     and not exists (select 1 from dias_desativados dd where dd.data = alvo)
   group by c.id
   on conflict (checklist_id, data) do nothing;

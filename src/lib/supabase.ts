@@ -31,10 +31,12 @@ export interface ChecklistRow {
   turno: string;
   horario: string;
   ativo: boolean;
-  dias_semana: number[];
   /** "HH:MM:SS" ou null — horário limite para concluir a rotina. */
   tempo_limite: string | null;
 }
+
+/** Modo de recorrência de uma atividade (item). */
+export type RecorrenciaRow = "semanal" | "quinzenal" | "mensal";
 
 export interface ChecklistItemRow {
   id: string;
@@ -48,6 +50,12 @@ export interface ChecklistItemRow {
   min_anexos: number;
   /** Anexos enviados no dia; limpos no rollover. */
   anexos: Anexo[];
+  /** Modo de recorrência da atividade. */
+  recorrencia: RecorrenciaRow;
+  /** Dias da semana (0=domingo..6=sábado) — usado quando recorrencia = 'semanal'. */
+  dias_semana: number[];
+  /** Data de início "yyyy-MM-dd" — usado quando recorrencia = 'quinzenal'/'mensal'. */
+  inicio: string | null;
 }
 
 export interface SetorRow {

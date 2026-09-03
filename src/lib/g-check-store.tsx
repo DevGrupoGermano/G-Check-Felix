@@ -8,8 +8,12 @@ import {
   type ChecklistItemRow,
   type ChecklistRow,
 } from "@/lib/supabase";
+import { dataDoIso } from "@/lib/utils";
+import { itemRodaNoDia, recorrencias, type Recorrencia } from "@/lib/recorrencia";
 import { useAuth } from "@/lib/auth-store";
 import { HISTORICO_QUERY_KEY, rolloverPendente } from "@/lib/historico";
+
+export { itemRodaNoDia, recorrencias, type Recorrencia };
 
 export type ItemStatus = "pendente" | "concluido";
 
@@ -42,6 +46,18 @@ export function labelDiasSemana(dias: number[]): string {
   return ordenados.map((v) => diasDaSemana[v]?.inicial ?? "?").join(" · ");
 }
 
+const fmtDataCurta = new Intl.DateTimeFormat("pt-BR", { day: "2-digit", month: "2-digit" });
+
+/** Rótulo da recorrência de uma atividade para exibir nas cards. */
+export function labelRecorrencia(item: Pick<ChecklistItem, "recorrencia" | "diasSemana" | "inicio">): string {
+  if (item.recorrencia === "semanal") return labelDiasSemana(item.diasSemana);
+  if (!item.inicio) return item.recorrencia === "quinzenal" ? "Quinzenal" : "Mensal";
+  const d = dataDoIso(item.inicio);
+  return item.recorrencia === "quinzenal"
+    ? `Quinzenal · desde ${fmtDataCurta.format(d)}`
+    : `Mensal · dia ${d.getDate()}`;
+}
+
 export interface ChecklistItem {
   id: string;
   titulo: string;
@@ -52,6 +68,12 @@ export interface ChecklistItem {
   minAnexos: number;
   /** Anexos enviados hoje (foto, vídeo ou documento); limpos no rollover diário. */
   anexos: Anexo[];
+  /** Modo de recorrência da atividade. */
+  recorrencia: Recorrencia;
+  /** Índices de Date.getDay() (0 = domingo) — usados quando recorrencia = "semanal". */
+  diasSemana: number[];
+  /** Data de início "yyyy-MM-dd" — usada quando recorrencia = "quinzenal"/"mensal". */
+  inicio: string | null;
 }
 
 export interface Checklist {
@@ -61,8 +83,6 @@ export interface Checklist {
   turno: string;
   horario: string;
   ativo: boolean;
-  /** Índices de Date.getDay() (0 = domingo) em que a rotina deve rodar. */
-  diasSemana: number[];
   /** "HH:MM" — horário limite para concluir; passou dele e não terminou = "atrasada". */
   tempoLimite?: string;
   itens: ChecklistItem[];
@@ -76,6 +96,9 @@ export interface ItemInput {
   responsavel: string;
   /** Quantos anexos são obrigatórios para concluir a tarefa (0 = opcional). */
   minAnexos: number;
+  recorrencia: Recorrencia;
+  diasSemana: number[];
+  inicio: string | null;
 }
 
 export interface ChecklistInput {
@@ -84,7 +107,6 @@ export interface ChecklistInput {
   turno: string;
   horario: string;
   ativo: boolean;
-  diasSemana: number[];
   /** "HH:MM" ou undefined. */
   tempoLimite?: string;
   itens: ItemInput[];
@@ -126,7 +148,6 @@ async function fetchChecklists(): Promise<Checklist[]> {
     turno: row.turno,
     horario: row.horario.slice(0, 5),
     ativo: row.ativo,
-    diasSemana: [...(row.dias_semana ?? [])].sort((a, b) => a - b),
     ...(row.tempo_limite ? { tempoLimite: row.tempo_limite.slice(0, 5) } : {}),
     itens: row.checklist_items.map((it) => ({
       id: it.id,
@@ -135,6 +156,9 @@ async function fetchChecklists(): Promise<Checklist[]> {
       responsavel: it.responsavel,
       minAnexos: it.min_anexos ?? 0,
       anexos: it.anexos ?? [],
+      recorrencia: (it.recorrencia ?? "semanal") as Recorrencia,
+      diasSemana: [...(it.dias_semana ?? [])].sort((a, b) => a - b),
+      inicio: it.inicio ?? null,
       ...(it.detalhe ? { detalhe: it.detalhe } : {}),
     })),
   }));
@@ -439,7 +463,6 @@ export function GCheckProvider({ children }: { children: React.ReactNode }) {
         turno: input.turno,
         horario: input.horario,
         ativo: input.ativo,
-        dias_semana: input.diasSemana,
         tempo_limite: input.tempoLimite ?? null,
       });
       if (checklistError) throw checklistError;
@@ -455,6 +478,9 @@ export function GCheckProvider({ children }: { children: React.ReactNode }) {
         posicao: index + 1,
         min_anexos: it.minAnexos,
         anexos: [],
+        recorrencia: it.recorrencia,
+        dias_semana: it.recorrencia === "semanal" ? it.diasSemana : [],
+        inicio: it.recorrencia === "semanal" ? null : it.inicio,
       }));
 
       const { error: itensError } = await supabase.from("checklist_items").insert(itensPayload);
@@ -509,6 +535,9 @@ export function GCheckProvider({ children }: { children: React.ReactNode }) {
           posicao: index + 1,
           min_anexos: it.minAnexos,
           anexos: anexosPorId.get(id) ?? [],
+          recorrencia: it.recorrencia,
+          dias_semana: it.recorrencia === "semanal" ? it.diasSemana : [],
+          inicio: it.recorrencia === "semanal" ? null : it.inicio,
         };
       });
 
@@ -524,7 +553,6 @@ export function GCheckProvider({ children }: { children: React.ReactNode }) {
           turno: input.turno,
           horario: input.horario,
           ativo: input.ativo,
-          dias_semana: input.diasSemana,
           tempo_limite: input.tempoLimite ?? null,
         })
         .eq("id", checklistId);
@@ -642,16 +670,21 @@ export interface AgregadoTarefas {
   atrasados: number;
 }
 
-/** Percorre os itens das checklists ativas somando por chave. */
+/**
+ * Percorre os itens das checklists ativas somando por chave. Com `naData`, só
+ * conta as atividades programadas para aquele dia (recorrência por item).
+ */
 function agregaTarefas(
   checklists: Checklist[],
   chaveDoItem: (item: ChecklistItem, checklist: Checklist) => string,
+  naData?: Date,
 ): AgregadoTarefas[] {
   const mapa = new Map<string, AgregadoTarefas>();
   for (const c of checklists) {
     if (!c.ativo) continue;
     const cAtrasada = estado(c) === "atrasada";
     for (const i of c.itens) {
+      if (naData && !itemRodaNoDia(i, naData)) continue;
       const chave = chaveDoItem(i, c).trim();
       if (!chave) continue;
       const atual =
@@ -676,12 +709,12 @@ function agregaTarefas(
   );
 }
 
-export function tarefasPorFuncionario(checklists: Checklist[]) {
-  return agregaTarefas(checklists, (i) => i.responsavel);
+export function tarefasPorFuncionario(checklists: Checklist[], naData?: Date) {
+  return agregaTarefas(checklists, (i) => i.responsavel, naData);
 }
 
-export function tarefasPorSetor(checklists: Checklist[]) {
-  return agregaTarefas(checklists, (_i, c) => c.setor);
+export function tarefasPorSetor(checklists: Checklist[], naData?: Date) {
+  return agregaTarefas(checklists, (_i, c) => c.setor, naData);
 }
 
 /** Acha o agregado de uma chave (ignora caixa/espaços); devolve zerado se não houver. */
@@ -699,12 +732,12 @@ export function resumoDe(agregados: AgregadoTarefas[], chave: string): AgregadoT
 }
 
 /**
- * A rotina está programada para rodar nesta data? Fora dos dias marcados em
- * `diasSemana` a rotina conta como "desativada" naquele dia — não é cobrada no
- * dashboard, não pode ser marcada e nem abre na lista.
+ * A rotina tem ao menos uma atividade programada para esta data? Fora disso a
+ * rotina conta como "desativada" naquele dia — não é cobrada no dashboard, não
+ * abre na lista. A regra por atividade está em `itemRodaNoDia` (lib/recorrencia).
  */
-export function rodaNoDia(c: Checklist, data: Date = new Date()): boolean {
-  return c.diasSemana.includes(data.getDay());
+export function checklistRodaNoDia(c: Checklist, data: Date = new Date()): boolean {
+  return c.itens.some((i) => itemRodaNoDia(i, data));
 }
 
 export type ChecklistEstado = "concluido" | "em_andamento" | "pendente" | "atrasada";

@@ -18,6 +18,18 @@ export function dataDoIso(iso: string): Date {
   return new Date(`${iso}T00:00:00`);
 }
 
+/** Último dia do mês (28..31) da data informada. */
+export function ultimoDiaDoMes(date: Date): number {
+  return new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate();
+}
+
+/** Diferença em dias inteiros entre duas datas (b - a), ignorando horário. */
+export function diasEntre(a: Date, b: Date): number {
+  const ma = Date.UTC(a.getFullYear(), a.getMonth(), a.getDate());
+  const mb = Date.UTC(b.getFullYear(), b.getMonth(), b.getDate());
+  return Math.round((mb - ma) / 86_400_000);
+}
+
 /**
  * Grade de um mês para calendário: começa no domingo anterior (ou no próprio)
  * dia 1 e vai até fechar a última semana, então toda célula é um Date real

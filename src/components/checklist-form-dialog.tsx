@@ -3,7 +3,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useQuery } from "@tanstack/react-query";
 import { useFieldArray, useForm } from "react-hook-form";
 import { z } from "zod";
-import { Paperclip, Pencil, Plus, Trash2 } from "lucide-react";
+import { CalendarClock, Paperclip, Pencil, Plus, Trash2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -35,26 +35,40 @@ import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import {
   diasDaSemana,
+  recorrencias,
   todosOsDias,
   turnos,
   useGCheck,
   type Checklist,
+  type Recorrencia,
 } from "@/lib/g-check-store";
 import { fetchProfiles, PROFILES_QUERY_KEY } from "@/lib/profiles";
 import { fetchSetores, SETORES_QUERY_KEY } from "@/lib/setores";
 import { cn } from "@/lib/utils";
 
-const itemSchema = z.object({
-  itemId: z.string().optional(),
-  titulo: z.string().trim().min(1, "Informe o título do item."),
-  detalhe: z.string().trim().optional(),
-  responsavel: z.string().trim().min(1, "Informe o responsável."),
-  minAnexos: z.coerce
-    .number()
-    .int("Use um número inteiro.")
-    .min(0, "Não pode ser negativo.")
-    .max(10, "No máximo 10."),
-});
+const itemSchema = z
+  .object({
+    itemId: z.string().optional(),
+    titulo: z.string().trim().min(1, "Informe o título do item."),
+    detalhe: z.string().trim().optional(),
+    responsavel: z.string().trim().min(1, "Informe o responsável."),
+    minAnexos: z.coerce
+      .number()
+      .int("Use um número inteiro.")
+      .min(0, "Não pode ser negativo.")
+      .max(10, "No máximo 10."),
+    recorrencia: z.enum(recorrencias),
+    diasSemana: z.array(z.number()),
+    inicio: z.string(),
+  })
+  .superRefine((v, ctx) => {
+    if (v.recorrencia === "semanal" && v.diasSemana.length === 0) {
+      ctx.addIssue({ code: "custom", path: ["diasSemana"], message: "Selecione ao menos um dia." });
+    }
+    if (v.recorrencia !== "semanal" && !v.inicio) {
+      ctx.addIssue({ code: "custom", path: ["inicio"], message: "Escolha a data de início." });
+    }
+  });
 
 const checklistSchema = z
   .object({
@@ -63,7 +77,6 @@ const checklistSchema = z
     turno: z.enum(turnos, { message: "Selecione o turno." }),
     horario: z.string().trim().min(1, "Informe o horário."),
     tempoLimite: z.string().trim(),
-    diasSemana: z.array(z.number()).min(1, "Selecione ao menos um dia da semana."),
     ativo: z.boolean(),
     itens: z.array(itemSchema).min(1, "Adicione ao menos um item."),
   })
@@ -74,7 +87,15 @@ const checklistSchema = z
 
 type ChecklistFormValues = z.infer<typeof checklistSchema>;
 
-const itemVazio = { titulo: "", detalhe: "", responsavel: "", minAnexos: 0 };
+const itemVazio = {
+  titulo: "",
+  detalhe: "",
+  responsavel: "",
+  minAnexos: 0,
+  recorrencia: "semanal" as Recorrencia,
+  diasSemana: [...todosOsDias],
+  inicio: "",
+};
 
 function turnoOuPadrao(turno: string): (typeof turnos)[number] {
   return (turnos as readonly string[]).includes(turno)
@@ -90,7 +111,6 @@ function valoresPadrao(checklist?: Checklist): ChecklistFormValues {
       turno: turnos[0],
       horario: "",
       tempoLimite: "",
-      diasSemana: [...todosOsDias],
       ativo: true,
       itens: [itemVazio],
     };
@@ -101,8 +121,6 @@ function valoresPadrao(checklist?: Checklist): ChecklistFormValues {
     turno: turnoOuPadrao(checklist.turno),
     horario: checklist.horario,
     tempoLimite: checklist.tempoLimite ?? "",
-    diasSemana:
-      checklist.diasSemana.length > 0 ? [...checklist.diasSemana] : [...todosOsDias],
     ativo: checklist.ativo,
     itens: checklist.itens.map((i) => ({
       itemId: i.id,
@@ -110,6 +128,9 @@ function valoresPadrao(checklist?: Checklist): ChecklistFormValues {
       detalhe: i.detalhe ?? "",
       responsavel: i.responsavel,
       minAnexos: i.minAnexos,
+      recorrencia: i.recorrencia,
+      diasSemana: i.diasSemana.length > 0 ? [...i.diasSemana] : [...todosOsDias],
+      inicio: i.inicio ?? "",
     })),
   };
 }
@@ -160,6 +181,9 @@ function ChecklistFormDialog({ checklist }: { checklist?: Checklist }) {
         titulo: i.titulo,
         responsavel: i.responsavel,
         minAnexos: i.minAnexos,
+        recorrencia: i.recorrencia,
+        diasSemana: [...i.diasSemana].sort((a, b) => a - b),
+        inicio: i.inicio || null,
         ...(detalhe ? { detalhe } : {}),
       };
     });
@@ -170,7 +194,6 @@ function ChecklistFormDialog({ checklist }: { checklist?: Checklist }) {
       turno: values.turno,
       horario: values.horario,
       ativo: values.ativo,
-      diasSemana: [...values.diasSemana].sort((a, b) => a - b),
       ...(values.tempoLimite.trim() ? { tempoLimite: values.tempoLimite.trim() } : {}),
       itens,
     };
@@ -309,47 +332,6 @@ function ChecklistFormDialog({ checklist }: { checklist?: Checklist }) {
                     <p className="text-xs text-muted-foreground">
                       Passou daqui sem concluir, a rotina fica “Atrasada”.
                     </p>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={form.control}
-                name="diasSemana"
-                render={({ field }) => (
-                  <FormItem className="sm:col-span-2">
-                    <FormLabel>Dias da semana</FormLabel>
-                    <FormControl>
-                      <div className="flex flex-wrap gap-2">
-                        {diasDaSemana.map((dia) => {
-                          const selecionado = field.value.includes(dia.valor);
-                          return (
-                            <button
-                              key={dia.valor}
-                              type="button"
-                              onClick={() =>
-                                field.onChange(
-                                  selecionado
-                                    ? field.value.filter((v: number) => v !== dia.valor)
-                                    : [...field.value, dia.valor].sort((a, b) => a - b),
-                                )
-                              }
-                              aria-pressed={selecionado}
-                              aria-label={dia.nome}
-                              title={dia.nome}
-                              className={cn(
-                                "flex size-9 items-center justify-center rounded-full border text-sm font-medium transition-colors",
-                                selecionado
-                                  ? "border-primary bg-primary text-primary-foreground"
-                                  : "border-input text-muted-foreground hover:border-primary hover:text-foreground",
-                              )}
-                            >
-                              {dia.inicial}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </FormControl>
                     <FormMessage />
                   </FormItem>
                 )}
@@ -495,6 +477,109 @@ function ChecklistFormDialog({ checklist }: { checklist?: Checklist }) {
                           </FormControl>
                         </FormItem>
                       )}
+                    />
+                    <FormField
+                      control={form.control}
+                      name={`itens.${index}.recorrencia`}
+                      render={({ field }) => {
+                        const rec = field.value as Recorrencia;
+                        return (
+                          <FormItem className="rounded-lg border border-border p-3">
+                            <FormLabel className="flex items-center gap-1.5">
+                              <CalendarClock className="size-3.5" />
+                              Recorrência
+                            </FormLabel>
+                            <FormControl>
+                              <div className="mt-1 inline-flex rounded-lg border border-input p-0.5">
+                                {recorrencias.map((r) => (
+                                  <button
+                                    key={r}
+                                    type="button"
+                                    onClick={() => field.onChange(r)}
+                                    aria-pressed={rec === r}
+                                    className={cn(
+                                      "rounded-md px-3 py-1 text-xs font-medium capitalize transition-colors",
+                                      rec === r
+                                        ? "bg-primary text-primary-foreground"
+                                        : "text-muted-foreground hover:text-foreground",
+                                    )}
+                                  >
+                                    {r}
+                                  </button>
+                                ))}
+                              </div>
+                            </FormControl>
+
+                            {rec === "semanal" ? (
+                              <FormField
+                                control={form.control}
+                                name={`itens.${index}.diasSemana`}
+                                render={({ field: dias }) => (
+                                  <FormItem className="mt-2">
+                                    <FormControl>
+                                      <div className="flex flex-wrap gap-2">
+                                        {diasDaSemana.map((dia) => {
+                                          const on = dias.value.includes(dia.valor);
+                                          return (
+                                            <button
+                                              key={dia.valor}
+                                              type="button"
+                                              onClick={() =>
+                                                dias.onChange(
+                                                  on
+                                                    ? dias.value.filter(
+                                                        (v: number) => v !== dia.valor,
+                                                      )
+                                                    : [...dias.value, dia.valor].sort(
+                                                        (a, b) => a - b,
+                                                      ),
+                                                )
+                                              }
+                                              aria-pressed={on}
+                                              aria-label={dia.nome}
+                                              title={dia.nome}
+                                              className={cn(
+                                                "flex size-9 items-center justify-center rounded-full border text-sm font-medium transition-colors",
+                                                on
+                                                  ? "border-primary bg-primary text-primary-foreground"
+                                                  : "border-input text-muted-foreground hover:border-primary hover:text-foreground",
+                                              )}
+                                            >
+                                              {dia.inicial}
+                                            </button>
+                                          );
+                                        })}
+                                      </div>
+                                    </FormControl>
+                                    <FormMessage />
+                                  </FormItem>
+                                )}
+                              />
+                            ) : (
+                              <FormField
+                                control={form.control}
+                                name={`itens.${index}.inicio`}
+                                render={({ field: ini }) => (
+                                  <FormItem className="mt-2">
+                                    <FormLabel className="text-xs font-normal text-muted-foreground">
+                                      Começa em
+                                    </FormLabel>
+                                    <FormControl>
+                                      <Input type="date" className="w-44" {...ini} />
+                                    </FormControl>
+                                    <p className="text-xs text-muted-foreground">
+                                      {rec === "quinzenal"
+                                        ? "Repete a cada 14 dias a partir desta data."
+                                        : "Repete todo mês neste dia (mês curto → último dia)."}
+                                    </p>
+                                    <FormMessage />
+                                  </FormItem>
+                                )}
+                              />
+                            )}
+                          </FormItem>
+                        );
+                      }}
                     />
                   </div>
                 ))}

@@ -41,7 +41,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth-store";
-import { resumoDe, rodaNoDia, tarefasPorSetor, useGCheck } from "@/lib/g-check-store";
+import { resumoDe, tarefasPorSetor, useGCheck } from "@/lib/g-check-store";
 import {
   criarSetor,
   editarSetor,
@@ -297,7 +297,7 @@ function SetoresPage() {
   // Mesmo critério da página de funcionários: o resumo de pendências de cada
   // setor considera só as rotinas que rodam hoje, para ver as tarefas do dia.
   const porSetor = React.useMemo(
-    () => tarefasPorSetor(checklists.filter((c) => c.ativo && rodaNoDia(c))),
+    () => tarefasPorSetor(checklists, new Date()),
     [checklists],
   );
   const query = useQuery({

@@ -59,9 +59,9 @@ import {
   ehResponsavel,
   estado,
   estadoLabel,
+  itemRodaNoDia,
   naoIniciada,
   progresso,
-  rodaNoDia,
   tarefasPorFuncionario,
   tarefasPorSetor,
   useGCheck,
@@ -594,10 +594,14 @@ function Dashboard() {
     );
   }
 
-  // Só entram no painel de hoje as rotinas ativas E programadas para o dia da
-  // semana atual (checklist.diasSemana). As demais contam como "desativadas hoje".
+  // Só entram no painel de hoje as rotinas ativas com alguma atividade programada
+  // para hoje. A recorrência vive por item, então cada rotina é recortada para as
+  // atividades de hoje; as demais contam como "desativadas hoje".
+  const hoje = new Date();
   const ativas = checklists.filter((c) => c.ativo);
-  const rotinasDeHoje = ativas.filter((c) => rodaNoDia(c));
+  const rotinasDeHoje = ativas
+    .map((c) => ({ ...c, itens: c.itens.filter((i) => itemRodaNoDia(i, hoje)) }))
+    .filter((c) => c.itens.length > 0);
   const inativas = checklists.length - ativas.length;
   // Admin vê todas as rotinas de hoje por inteiro. Funcionário vê versões
   // "recortadas": cada checklist mostra só os itens atribuídos a ele, e a

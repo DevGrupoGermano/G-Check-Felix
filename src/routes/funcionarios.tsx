@@ -42,7 +42,7 @@ import { cn } from "@/lib/utils";
 import { useAuth, type Profile } from "@/lib/auth-store";
 import { criarFuncionario, editarFuncionario, excluirFuncionario } from "@/lib/employees-fn";
 import { fetchProfiles, PROFILES_QUERY_KEY } from "@/lib/profiles";
-import { resumoDe, rodaNoDia, tarefasPorFuncionario, useGCheck } from "@/lib/g-check-store";
+import { resumoDe, tarefasPorFuncionario, useGCheck } from "@/lib/g-check-store";
 
 export const Route = createFileRoute("/funcionarios")({
   head: () => ({
@@ -350,7 +350,7 @@ function FuncionariosPage() {
   // hoje: a marca de "pendente" aparece quando a pessoa tem tarefa do dia ainda
   // não concluída.
   const porFuncionario = React.useMemo(
-    () => tarefasPorFuncionario(checklists.filter((c) => c.ativo && rodaNoDia(c))),
+    () => tarefasPorFuncionario(checklists, new Date()),
     [checklists],
   );
   const query = useQuery({

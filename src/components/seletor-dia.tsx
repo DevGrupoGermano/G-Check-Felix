@@ -5,20 +5,19 @@ import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Separator } from "@/components/ui/separator";
 import { cn, dataDoIso, isoDoDia } from "@/lib/utils";
-import type { Checklist } from "@/lib/g-check-store";
+import { checklistRodaNoDia, type Checklist } from "@/lib/g-check-store";
 
 function mesmoDia(a: Date, b: Date) {
   return isoDoDia(a) === isoDoDia(b);
 }
 
 /**
- * Quantas rotinas ativas caem no dia da semana desta data. Como as tarefas não
- * têm data própria (só dias da semana em checklist.diasSemana), "dia com tarefas"
- * = existe rotina ativa agendada para aquele dia da semana.
+ * Quantas rotinas ativas têm alguma atividade programada nesta data. A
+ * recorrência vive por item (semanal/quinzenal/mensal), então "dia com tarefas"
+ * = existe rotina ativa com ao menos uma atividade caindo naquele dia.
  */
 function rotinasNoDia(checklists: Checklist[], date: Date): number {
-  const dow = date.getDay();
-  return checklists.filter((c) => c.ativo && c.diasSemana.includes(dow)).length;
+  return checklists.filter((c) => c.ativo && checklistRodaNoDia(c, date)).length;
 }
 
 const fmtCurto = new Intl.DateTimeFormat("pt-BR", { day: "2-digit", month: "2-digit" });
