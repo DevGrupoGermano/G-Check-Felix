@@ -168,6 +168,11 @@ export function AppShell({
           <button className="lg:hidden" onClick={() => setOpen(true)} aria-label="Abrir menu">
             <Menu className="size-4.5" />
           </button>
+          <img
+            src="/logo-felix.png"
+            alt="Supermercado Felix"
+            className="h-10 w-auto shrink-0 md:h-12"
+          />
           <div className="min-w-0">
             <h1 className="truncate text-base font-semibold tracking-tight md:text-lg">{title}</h1>
             {subtitle && <p className="truncate text-xs text-neutral-800/80">{subtitle}</p>}

@@ -207,6 +207,12 @@ function checklistPendente(c: Checklist): Checklist {
 export interface ChecklistSearch {
   estados?: EstadoVista[] | undefined;
   turnos?: Turno[] | undefined;
+  /**
+   * Faixa de horário de início ("HH:MM"): mantém rotinas com ao menos um item
+   * começando dentro do intervalo. Qualquer um dos limites pode vir sozinho.
+   */
+  horarioDe?: string | undefined;
+  horarioAte?: string | undefined;
   /** Nomes de setores para recortar as rotinas (casa com `checklist.setor`). */
   setores?: string[] | undefined;
   /** Nomes de responsáveis: mantém as rotinas que têm ao menos um item da pessoa. */
@@ -241,6 +247,8 @@ export const Route = createFileRoute("/checklists")({
   validateSearch: (search: Record<string, unknown>): ChecklistSearch => {
     const rawEstados = search["estados"];
     const rawTurnos = search["turnos"];
+    const rawHorarioDe = search["horarioDe"];
+    const rawHorarioAte = search["horarioAte"];
     const rawSetores = search["setores"];
     const rawFuncionarios = search["funcionarios"];
     const rawChecklist = search["checklist"];
@@ -253,6 +261,10 @@ export const Route = createFileRoute("/checklists")({
     const turnosSearch = Array.isArray(rawTurnos)
       ? rawTurnos.filter((t): t is Turno => (turnos as readonly string[]).includes(t as string))
       : undefined;
+    const ehHHMM = (v: unknown): v is string =>
+      typeof v === "string" && /^\d{2}:\d{2}$/.test(v);
+    const horarioDe = ehHHMM(rawHorarioDe) ? rawHorarioDe : undefined;
+    const horarioAte = ehHHMM(rawHorarioAte) ? rawHorarioAte : undefined;
     // Setores/funcionários são texto livre (vêm do cadastro): só filtramos por tipo.
     const setores = Array.isArray(rawSetores)
       ? rawSetores.filter((s): s is string => typeof s === "string" && s.length > 0)
@@ -272,6 +284,8 @@ export const Route = createFileRoute("/checklists")({
     return {
       ...(estados && estados.length ? { estados } : {}),
       ...(turnosSearch && turnosSearch.length ? { turnos: turnosSearch } : {}),
+      ...(horarioDe ? { horarioDe } : {}),
+      ...(horarioAte ? { horarioAte } : {}),
       ...(setores && setores.length ? { setores } : {}),
       ...(funcionarios && funcionarios.length ? { funcionarios } : {}),
       ...(checklist ? { checklist } : {}),
@@ -302,31 +316,42 @@ const turnoOptions: { id: Turno; label: string }[] = turnos.map((t) => ({ id: t,
 function FiltrosChecklist({
   estadosSelecionados,
   turnosSelecionados,
+  horarioDe,
+  horarioAte,
   setoresSelecionados,
   funcionariosSelecionados,
+  horariosDisponiveis,
   setoresDisponiveis,
   funcionariosDisponiveis,
   onToggleEstado,
   onToggleTurno,
+  onChangeHorario,
   onToggleSetor,
   onToggleFuncionario,
   onLimpar,
 }: {
   estadosSelecionados: EstadoVista[];
   turnosSelecionados: Turno[];
+  horarioDe: string | undefined;
+  horarioAte: string | undefined;
   setoresSelecionados: string[];
   funcionariosSelecionados: string[];
+  /** Horários de início presentes nos itens — viram sugestões nos campos De/Até. */
+  horariosDisponiveis: string[];
   setoresDisponiveis: string[];
   funcionariosDisponiveis: string[];
   onToggleEstado: (id: EstadoVista) => void;
   onToggleTurno: (id: Turno) => void;
+  onChangeHorario: (patch: { de?: string | undefined; ate?: string | undefined }) => void;
   onToggleSetor: (id: string) => void;
   onToggleFuncionario: (id: string) => void;
   onLimpar: () => void;
 }) {
+  const temHorario = !!horarioDe || !!horarioAte;
   const total =
     estadosSelecionados.length +
     turnosSelecionados.length +
+    (temHorario ? 1 : 0) +
     setoresSelecionados.length +
     funcionariosSelecionados.length;
 
@@ -424,6 +449,44 @@ function FiltrosChecklist({
               )}
             </CommandList>
           </Command>
+
+          <div className="border-t border-border p-3">
+            <p className="text-xs font-medium text-muted-foreground">Horário de início</p>
+            <div className="mt-2 flex items-center gap-2">
+              <input
+                type="time"
+                aria-label="Horário inicial"
+                value={horarioDe ?? ""}
+                list="checklist-horarios"
+                onChange={(e) => onChangeHorario({ de: e.target.value || undefined })}
+                className="h-8 flex-1 rounded-md border border-input bg-transparent px-2 text-sm outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              />
+              <span className="text-xs text-muted-foreground">até</span>
+              <input
+                type="time"
+                aria-label="Horário final"
+                value={horarioAte ?? ""}
+                list="checklist-horarios"
+                onChange={(e) => onChangeHorario({ ate: e.target.value || undefined })}
+                className="h-8 flex-1 rounded-md border border-input bg-transparent px-2 text-sm outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              />
+            </div>
+            {horariosDisponiveis.length > 0 && (
+              <datalist id="checklist-horarios">
+                {horariosDisponiveis.map((h) => (
+                  <option key={h} value={h} />
+                ))}
+              </datalist>
+            )}
+            {temHorario && (
+              <button
+                onClick={() => onChangeHorario({ de: undefined, ate: undefined })}
+                className="mt-2 text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+              >
+                Limpar horário
+              </button>
+            )}
+          </div>
         </PopoverContent>
       </Popover>
 
@@ -451,6 +514,22 @@ function FiltrosChecklist({
           </button>
         </Badge>
       ))}
+      {temHorario && (
+        <Badge variant="secondary" className="gap-1 py-1 pl-2.5 pr-1.5 font-medium">
+          {horarioDe && horarioAte
+            ? `${horarioDe}–${horarioAte}`
+            : horarioDe
+              ? `a partir de ${horarioDe}`
+              : `até ${horarioAte}`}
+          <button
+            onClick={() => onChangeHorario({ de: undefined, ate: undefined })}
+            aria-label="Remover filtro de horário"
+            className="rounded-full p-0.5 hover:bg-foreground/10"
+          >
+            <X className="size-3" />
+          </button>
+        </Badge>
+      )}
       {setoresSelecionados.map((s) => (
         <Badge key={s} variant="secondary" className="gap-1 py-1 pl-2.5 pr-1.5 font-medium">
           {s}
@@ -1263,6 +1342,8 @@ function ChecklistsPage() {
   const {
     estados,
     turnos: turnosSearch,
+    horarioDe,
+    horarioAte,
     setores: setoresSearch,
     funcionarios: funcionariosSearch,
     checklist: checklistDestaque,
@@ -1318,6 +1399,18 @@ function ChecklistsPage() {
     return [...nomes].sort((a, b) => a.localeCompare(b, "pt-BR"));
   }, [checklists]);
 
+  // Horários de início realmente cadastrados nos itens ("HH:MM"), sem repetição
+  // e em ordem crescente — viram sugestões (datalist) nos campos De/Até do filtro.
+  const horariosDisponiveis = React.useMemo(() => {
+    const valores = new Set<string>();
+    for (const c of checklists) {
+      for (const i of c.itens) {
+        if (i.horarioInicio) valores.add(i.horarioInicio);
+      }
+    }
+    return [...valores].sort((a, b) => a.localeCompare(b));
+  }, [checklists]);
+
   const toggleEstado = React.useCallback(
     (id: EstadoVista) => {
       navigate({
@@ -1339,6 +1432,19 @@ function ChecklistsPage() {
           const proximo = atuais.includes(id) ? atuais.filter((t) => t !== id) : [...atuais, id];
           return { ...prev, turnos: proximo.length ? proximo : undefined };
         },
+      });
+    },
+    [navigate],
+  );
+
+  const mudarHorario = React.useCallback(
+    (patch: { de?: string | undefined; ate?: string | undefined }) => {
+      navigate({
+        search: (prev) => ({
+          ...prev,
+          ...("de" in patch ? { horarioDe: patch.de || undefined } : {}),
+          ...("ate" in patch ? { horarioAte: patch.ate || undefined } : {}),
+        }),
       });
     },
     [navigate],
@@ -1376,6 +1482,8 @@ function ChecklistsPage() {
         ...prev,
         estados: undefined,
         turnos: undefined,
+        horarioDe: undefined,
+        horarioAte: undefined,
         setores: undefined,
         funcionarios: undefined,
       }),
@@ -1490,8 +1598,21 @@ function ChecklistsPage() {
     turnosSelecionados.length === 0 ||
     c.turnos.some((t) => turnosSelecionados.includes(t as Turno));
 
+  // Um "HH:MM" cai dentro do intervalo De–Até (qualquer limite pode faltar).
+  const horarioNaFaixa = (hhmm: string | null) => {
+    if (!hhmm) return false;
+    if (horarioDe && hhmm < horarioDe) return false;
+    if (horarioAte && hhmm > horarioAte) return false;
+    return true;
+  };
+
+  // Rotina passa se tiver ao menos um item começando dentro do intervalo.
+  const passaHorario = (c: Checklist) =>
+    (!horarioDe && !horarioAte) || c.itens.some((i) => horarioNaFaixa(i.horarioInicio));
+
   const lista = checklistsDoDia.filter((c) => {
     if (!passaTurno(c)) return false;
+    if (!passaHorario(c)) return false;
     if (!passaSetorEFuncionario(c)) return false;
     if (!ehHoje) {
       return (
@@ -1508,7 +1629,7 @@ function ChecklistsPage() {
   const tarefasFuncionario: TarefaFuncionario[] = isAdmin
     ? []
     : checklistsDoDia
-        .filter((c) => passaTurno(c) && passaSetorEFuncionario(c))
+        .filter((c) => passaTurno(c) && passaHorario(c) && passaSetorEFuncionario(c))
         .flatMap((c) =>
           c.itens
             .filter((i) => ehResponsavel(i, profile?.nome))
@@ -1517,6 +1638,7 @@ function ChecklistsPage() {
               const t = i.turno ?? turnoDoHorario(i.horarioInicio);
               return !t || turnosSelecionados.includes(t as Turno);
             })
+            .filter((i) => (!horarioDe && !horarioAte) || horarioNaFaixa(i.horarioInicio))
             .map((i) => ({ checklist: c, item: i, estado: estadoDaTarefa(c, i, ehHoje) })),
         )
         .filter((t) => estadosSelecionados.length === 0 || estadosSelecionados.includes(t.estado))
@@ -1530,6 +1652,8 @@ function ChecklistsPage() {
   const temFiltro =
     estadosSelecionados.length > 0 ||
     turnosSelecionados.length > 0 ||
+    !!horarioDe ||
+    !!horarioAte ||
     setoresSelecionados.length > 0 ||
     funcionariosSelecionados.length > 0 ||
     diaSelecionado;
@@ -1570,12 +1694,16 @@ function ChecklistsPage() {
             <FiltrosChecklist
               estadosSelecionados={estadosSelecionados}
               turnosSelecionados={turnosSelecionados}
+              horarioDe={horarioDe}
+              horarioAte={horarioAte}
               setoresSelecionados={setoresSelecionados}
               funcionariosSelecionados={funcionariosSelecionados}
+              horariosDisponiveis={horariosDisponiveis}
               setoresDisponiveis={setoresDisponiveis}
               funcionariosDisponiveis={funcionariosDisponiveis}
               onToggleEstado={toggleEstado}
               onToggleTurno={toggleTurno}
+              onChangeHorario={mudarHorario}
               onToggleSetor={toggleSetor}
               onToggleFuncionario={toggleFuncionario}
               onLimpar={limparFiltros}
