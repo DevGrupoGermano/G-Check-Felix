@@ -321,7 +321,12 @@ function SetoresPage() {
   return (
     <AppShell title="Setores" subtitle="Áreas da loja usadas nas checklists">
       <div className="mx-auto max-w-3xl space-y-5">
-        <div className="flex items-center justify-end">
+        <div className="flex items-center justify-between gap-3">
+          <span className="text-sm text-muted-foreground">
+            {query.data
+              ? `${query.data.length} ${query.data.length === 1 ? "setor" : "setores"}`
+              : null}
+          </span>
           <NovoSetorDialog />
         </div>
 

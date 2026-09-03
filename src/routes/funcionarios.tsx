@@ -374,7 +374,12 @@ function FuncionariosPage() {
   return (
     <AppShell title="Funcionários" subtitle="Contas com acesso ao G-check">
       <div className="mx-auto max-w-3xl space-y-5">
-        <div className="flex items-center justify-end">
+        <div className="flex items-center justify-between gap-3">
+          <span className="text-sm text-muted-foreground">
+            {query.data
+              ? `${query.data.length} ${query.data.length === 1 ? "funcionário" : "funcionários"}`
+              : null}
+          </span>
           <NovoFuncionarioDialog />
         </div>
 
