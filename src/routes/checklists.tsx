@@ -355,6 +355,21 @@ function FiltrosChecklist({
     setoresSelecionados.length +
     funcionariosSelecionados.length;
 
+  // Os campos "De"/"Até" são digitados localmente e só entram na URL quando o
+  // campo perde o foco (ou no Enter). Se cada tecla chamasse onChangeHorario, o
+  // navigate() re-renderiza e devolve o valor controlado no meio da digitação —
+  // por isso "11:30" virava "11:03"/"11:00".
+  const [horDe, setHorDe] = React.useState(horarioDe ?? "");
+  const [horAte, setHorAte] = React.useState(horarioAte ?? "");
+  React.useEffect(() => setHorDe(horarioDe ?? ""), [horarioDe]);
+  React.useEffect(() => setHorAte(horarioAte ?? ""), [horarioAte]);
+  const comitarDe = () => {
+    if ((horDe || undefined) !== horarioDe) onChangeHorario({ de: horDe || undefined });
+  };
+  const comitarAte = () => {
+    if ((horAte || undefined) !== horarioAte) onChangeHorario({ ate: horAte || undefined });
+  };
+
   return (
     <div className="flex flex-wrap items-center gap-2">
       <Popover>
@@ -456,18 +471,26 @@ function FiltrosChecklist({
               <input
                 type="time"
                 aria-label="Horário inicial"
-                value={horarioDe ?? ""}
+                value={horDe}
                 list="checklist-horarios"
-                onChange={(e) => onChangeHorario({ de: e.target.value || undefined })}
+                onChange={(e) => setHorDe(e.target.value)}
+                onBlur={comitarDe}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") e.currentTarget.blur();
+                }}
                 className="h-8 flex-1 rounded-md border border-input bg-transparent px-2 text-sm outline-none focus-visible:ring-1 focus-visible:ring-ring"
               />
               <span className="text-xs text-muted-foreground">até</span>
               <input
                 type="time"
                 aria-label="Horário final"
-                value={horarioAte ?? ""}
+                value={horAte}
                 list="checklist-horarios"
-                onChange={(e) => onChangeHorario({ ate: e.target.value || undefined })}
+                onChange={(e) => setHorAte(e.target.value)}
+                onBlur={comitarAte}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") e.currentTarget.blur();
+                }}
                 className="h-8 flex-1 rounded-md border border-input bg-transparent px-2 text-sm outline-none focus-visible:ring-1 focus-visible:ring-ring"
               />
             </div>
@@ -1017,6 +1040,15 @@ function ChecklistCard({
               // Enquete sem opção escolhida: idem, trava a conclusão.
               const respostaPendente = i.tipoTarefa === "enquete" && !i.resposta && !feito;
               const travaConclusao = anexosPendentes || respostaPendente;
+              // Horário/turno definidos para a atividade (turno cai do horário
+              // quando não foi escolhido à mão).
+              const turnoItem = i.turno ?? turnoDoHorario(i.horarioInicio);
+              const faixaHoraria = i.horarioInicio
+                ? i.horarioTermino
+                  ? `${i.horarioInicio}–${i.horarioTermino}`
+                  : `a partir de ${i.horarioInicio}`
+                : null;
+              const infoHorario = [turnoItem, faixaHoraria].filter(Boolean).join(" · ");
               return (
                 <li key={i.id} className="flex flex-wrap items-start gap-3 py-3">
                   <button
@@ -1067,6 +1099,26 @@ function ChecklistCard({
                       <span className="inline-flex items-center gap-1">
                         <CalendarDays className="size-3" /> {labelRecorrencia(i)}
                       </span>
+                      <span
+                        className={cn(
+                          "inline-flex items-center gap-1",
+                          !infoHorario && "italic",
+                        )}
+                      >
+                        <Clock className="size-3" />{" "}
+                        {infoHorario || "Sem horário definido"}
+                      </span>
+                      {i.tipoTarefa === "enquete" && (
+                        <span className="inline-flex items-center gap-1">
+                          <FileText className="size-3" /> Enquete
+                        </span>
+                      )}
+                      {i.minAnexos > 0 && (
+                        <span className="inline-flex items-center gap-1">
+                          <Paperclip className="size-3" /> {i.minAnexos}{" "}
+                          {i.minAnexos === 1 ? "anexo obrigatório" : "anexos obrigatórios"}
+                        </span>
+                      )}
                     </p>
                     {(i.minAnexos > 0 || i.anexos.length > 0) && (
                       <AnexosItem
@@ -1606,22 +1658,32 @@ function ChecklistsPage() {
     return true;
   };
 
-  // Rotina passa se tiver ao menos um item começando dentro do intervalo.
-  const passaHorario = (c: Checklist) =>
-    (!horarioDe && !horarioAte) || c.itens.some((i) => horarioNaFaixa(i.horarioInicio));
+  // O filtro de horário age nas ATIVIDADES, não na rotina: com uma faixa De–Até
+  // definida, cada card mostra só os itens que começam dentro dela — e o
+  // progresso/estado passam a refletir esse recorte. Rotina que fica sem
+  // nenhuma atividade no intervalo é descartada.
+  const temFiltroHorario = !!horarioDe || !!horarioAte;
+  const recortarHorario = (c: Checklist): Checklist => {
+    if (!temFiltroHorario) return c;
+    const itens = c.itens.filter((i) => horarioNaFaixa(i.horarioInicio));
+    // Recalcula turnos/faixa do cabeçalho a partir só das atividades que restaram.
+    return { ...c, itens, ...descricaoAgenda(itens) };
+  };
 
-  const lista = checklistsDoDia.filter((c) => {
-    if (!passaTurno(c)) return false;
-    if (!passaHorario(c)) return false;
-    if (!passaSetorEFuncionario(c)) return false;
-    if (!ehHoje) {
-      return (
-        estadosSelecionados.length === 0 ||
-        estadosSelecionados.includes(estadoVistaCard(c, false))
-      );
-    }
-    return estadosSelecionados.length === 0 || estadosSelecionados.includes(estadoVista(c));
-  });
+  const lista = checklistsDoDia
+    .map(recortarHorario)
+    .filter((c) => {
+      if (temFiltroHorario && c.itens.length === 0) return false;
+      if (!passaTurno(c)) return false;
+      if (!passaSetorEFuncionario(c)) return false;
+      if (!ehHoje) {
+        return (
+          estadosSelecionados.length === 0 ||
+          estadosSelecionados.includes(estadoVistaCard(c, false))
+        );
+      }
+      return estadosSelecionados.length === 0 || estadosSelecionados.includes(estadoVista(c));
+    });
 
   // Funcionário não vê a rotina inteira: percorre os itens atribuídos a ele
   // (nas rotinas que passam pelos mesmos filtros de turno/dia) e monta uma
@@ -1629,7 +1691,7 @@ function ChecklistsPage() {
   const tarefasFuncionario: TarefaFuncionario[] = isAdmin
     ? []
     : checklistsDoDia
-        .filter((c) => passaTurno(c) && passaHorario(c) && passaSetorEFuncionario(c))
+        .filter((c) => passaTurno(c) && passaSetorEFuncionario(c))
         .flatMap((c) =>
           c.itens
             .filter((i) => ehResponsavel(i, profile?.nome))
@@ -1744,7 +1806,9 @@ function ChecklistsPage() {
                           : "Nenhuma atividade programada para esse dia."
                         : diaSelecionado
                           ? "Nenhuma atividade para o dia escolhido."
-                          : "Nenhuma rotina neste estado."}
+                          : temFiltroHorario
+                            ? "Nenhuma atividade no horário escolhido."
+                            : "Nenhuma rotina neste estado."}
                   </p>
                 )}
               </>
