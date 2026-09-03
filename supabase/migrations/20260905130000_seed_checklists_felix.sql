@@ -7,22 +7,25 @@
 -- horário de início (04–11 Manhã · 11–18 Tarde · 18–04 Noite).
 --
 -- SUB Gerente e Lider(Açougue) viram duas rotinas cada (Diurno/Noturno).
+-- As duas rotinas de Segurança são o giro da loja: reabrem sozinhas a cada
+-- 20 min (reabre_automatico) e não têm horário/PERIODO — rodam todo dia.
 -- setor e responsavel usam o nome EXATO de profiles/setores no Supabase
 -- (jvigqsweuzylnubqegiw). Açougue tem um único perfil Lider(Açougue), então
 -- as duas rotinas de açougue compartilham esse responsavel.
 --
--- Fora desta carga por ora: abas PADARIA, FRENTE DE CAIXA e as duas de
--- SEGURANÇA. Itens quinzenais/mensais começam em 2026-09-01 (ajustar depois).
+-- Fora desta carga por ora: abas PADARIA e FRENTE DE CAIXA.
+-- Itens quinzenais/mensais começam em 2026-09-01 (ajustar depois).
 --
--- Depende de 20260905120000_tarefa_enquete_e_turno_por_item.sql.
--- Idempotente: apaga e regrava as 11 rotinas abaixo pelos seus ids.
+-- Depende de 20260905120000_tarefa_enquete_e_turno_por_item.sql e
+-- 20260905140000_reabertura_automatica.sql.
+-- Idempotente: apaga e regrava as 13 rotinas abaixo pelos seus ids.
 -- ============================================================================
 
-delete from checklists where id in ('gerente', 'sub-gerente-diurno', 'sub-gerente-noturno', 'lider-adega', 'lider-cafe', 'lider-limpeza', 'lider-cerveja', 'lider-pereciveis', 'lider-acougue-diurno', 'lider-acougue-noturno', 'lider-patio');
+delete from checklists where id in ('gerente', 'sub-gerente-diurno', 'sub-gerente-noturno', 'seguranca-diurno', 'seguranca-noturno', 'lider-adega', 'lider-cafe', 'lider-limpeza', 'lider-cerveja', 'lider-pereciveis', 'lider-acougue-diurno', 'lider-acougue-noturno', 'lider-patio');
 
 -- Rotina completa 'Gerente' (74 atividades)
-insert into checklists (id, nome, setor, ativo) values
-  ('gerente', 'Rotina completa ''Gerente''', 'Gerente', true);
+insert into checklists (id, nome, setor, ativo, reabre_automatico, reabre_intervalo_min) values
+  ('gerente', 'Rotina completa ''Gerente''', 'Gerente', true, false, null);
 insert into checklist_items
   (id, checklist_id, titulo, detalhe, responsavel, status, posicao,
    tipo_tarefa, resposta_opcoes, turno, horario_inicio, horario_termino,
@@ -104,8 +107,8 @@ values
   ('gerente-74', 'gerente', 'CONTROLE DE PRAGAS "DEDETIZAÇÃO" ( ENVIAR CERTIFICADO PARA GERENTE GERAL JULIANA )', null, 'Gerente', 'pendente', 74, 'enquete', '["SIM","NÃO"]'::jsonb, 'Manhã', '07:00:00', '18:00:00', 0, null, '[]'::jsonb, 'quinzenal', '{}', '2026-09-01');
 
 -- Rotina completa 'SUB Gerente Diurno' (78 atividades)
-insert into checklists (id, nome, setor, ativo) values
-  ('sub-gerente-diurno', 'Rotina completa ''SUB Gerente Diurno''', 'SUB Gerente Diurno', true);
+insert into checklists (id, nome, setor, ativo, reabre_automatico, reabre_intervalo_min) values
+  ('sub-gerente-diurno', 'Rotina completa ''SUB Gerente Diurno''', 'SUB Gerente Diurno', true, false, null);
 insert into checklist_items
   (id, checklist_id, titulo, detalhe, responsavel, status, posicao,
    tipo_tarefa, resposta_opcoes, turno, horario_inicio, horario_termino,
@@ -190,9 +193,9 @@ values
   ('sub-gerente-diurno-77', 'sub-gerente-diurno', 'ENVIAR CARGA PARA A BALANÇA ( AÇOUGUE E PADARIA )', null, 'SUB Gerente Diurno', 'pendente', 77, 'enquete', '["SIM","NÃO"]'::jsonb, 'Noite', '21:00:00', '22:00:00', 1, 1, '[]'::jsonb, 'semanal', '{0,1,2,3,4,5,6}', null),
   ('sub-gerente-diurno-78', 'sub-gerente-diurno', 'CONTROLE DE PRAGAS "DEDETIZAÇÃO" ( ENVIAR CERTIFICADO PARA GERENTE GERAL JULIANA )', null, 'SUB Gerente Diurno', 'pendente', 78, 'enquete', '["SIM","NÃO"]'::jsonb, 'Noite', '21:00:00', '22:00:00', 1, 10, '[]'::jsonb, 'quinzenal', '{}', '2026-09-01');
 
--- Rotina completa 'SUB Gerente Noturno' (25 atividades)
-insert into checklists (id, nome, setor, ativo) values
-  ('sub-gerente-noturno', 'Rotina completa ''SUB Gerente Noturno''', 'SUB Gerente Noturno', true);
+-- Rotina completa 'SUB Gerente Noturno' (24 atividades)
+insert into checklists (id, nome, setor, ativo, reabre_automatico, reabre_intervalo_min) values
+  ('sub-gerente-noturno', 'Rotina completa ''SUB Gerente Noturno''', 'SUB Gerente Noturno', true, false, null);
 insert into checklist_items
   (id, checklist_id, titulo, detalhe, responsavel, status, posicao,
    tipo_tarefa, resposta_opcoes, turno, horario_inicio, horario_termino,
@@ -211,22 +214,98 @@ values
   ('sub-gerente-noturno-11', 'sub-gerente-noturno', 'VERIFICAR TODOS OS CONSULTA PREÇO', '1 FOTO DO TESTE OK E 1 FOTO DO LOCAL QUE ESTA', 'SUB Gerente Noturno', 'pendente', 11, 'enquete', '["SIM","NÃO"]'::jsonb, 'Manhã', '05:00:00', '06:00:00', 1, null, '[]'::jsonb, 'semanal', '{0,1,2,3,4,5,6}', null),
   ('sub-gerente-noturno-12', 'sub-gerente-noturno', 'VERIFICAR TODOS OS CONSULTA PREÇO', '1 FOTO DO TESTE OK E 1 FOTO DO LOCAL QUE ESTA', 'SUB Gerente Noturno', 'pendente', 12, 'enquete', '["SIM","NÃO"]'::jsonb, 'Manhã', '05:00:00', '06:00:00', 1, null, '[]'::jsonb, 'semanal', '{0,1,2,3,4,5,6}', null),
   ('sub-gerente-noturno-13', 'sub-gerente-noturno', 'IMPRESSÃO DAS ETIQUETAS DE PREÇOS', '1 INICIO E 1 NO TERMINO', 'SUB Gerente Noturno', 'pendente', 13, 'enquete', '["SIM","NÃO"]'::jsonb, 'Noite', '00:30:00', '01:30:00', 2, 2, '[]'::jsonb, 'semanal', '{0,1,2,3,4,5,6}', null),
-  ('sub-gerente-noturno-14', 'sub-gerente-noturno', 'PRECIFICAÇÃO DAS ETIQUETAS DE PREÇOS', null, 'SUB Gerente Noturno', 'pendente', 14, 'enquete', '[]'::jsonb, null, null, null, 0, null, '[]'::jsonb, 'semanal', '{0,1,2,3,4,5,6}', null),
-  ('sub-gerente-noturno-15', 'sub-gerente-noturno', 'PONTO EXTRA ( AÇÕES SEGUNDA A QUINTA )', 'FOTO DOS PONTO EXTRA', 'SUB Gerente Noturno', 'pendente', 15, 'enquete', '["SIM","NÃO"]'::jsonb, 'Noite', '21:30:00', '05:50:00', 1, 10, '[]'::jsonb, 'semanal', '{6}', null),
-  ('sub-gerente-noturno-16', 'sub-gerente-noturno', 'PONTO EXTRA ( AÇÕES SEXTA A DOMINGO )', 'FOTO DOS PONTO EXTRA', 'SUB Gerente Noturno', 'pendente', 16, 'enquete', '["SIM","NÃO"]'::jsonb, 'Noite', '21:30:00', '05:50:00', 1, 10, '[]'::jsonb, 'semanal', '{4}', null),
-  ('sub-gerente-noturno-17', 'sub-gerente-noturno', 'VERIFICAR SE O TIME ESTA FAZENDO A ROTINA CORRETA DA FUNÇAO ( TEMPO OCIOSO)', null, 'SUB Gerente Noturno', 'pendente', 17, 'enquete', '["SIM","NÃO"]'::jsonb, 'Noite', '22:00:00', '23:00:00', 1, 10, '[]'::jsonb, 'semanal', '{0,1,2,3,4,5,6}', null),
-  ('sub-gerente-noturno-18', 'sub-gerente-noturno', 'VERIFICAR SE O TIME ESTA FAZENDO A ROTINA CORRETA DA FUNÇAO ( TEMPO OCIOSO)', null, 'SUB Gerente Noturno', 'pendente', 18, 'enquete', '["SIM","NÃO"]'::jsonb, 'Noite', '01:00:00', '02:00:00', 1, 10, '[]'::jsonb, 'semanal', '{0,1,2,3,4,5,6}', null),
-  ('sub-gerente-noturno-19', 'sub-gerente-noturno', 'VERIFICAR SE O TIME ESTA FAZENDO A ROTINA CORRETA DA FUNÇAO ( TEMPO OCIOSO)', null, 'SUB Gerente Noturno', 'pendente', 19, 'enquete', '["SIM","NÃO"]'::jsonb, 'Manhã', '04:00:00', '05:00:00', 1, 10, '[]'::jsonb, 'semanal', '{0,1,2,3,4,5,6}', null),
-  ('sub-gerente-noturno-20', 'sub-gerente-noturno', 'VERIFICAR ESTOQUE DOS SETORES SE ESTA PADRÃO, ORGANIZADO E ALINHAR ESTRATEGIA DE ATUAÇÃO', null, 'SUB Gerente Noturno', 'pendente', 20, 'enquete', '["PADRÃO","NÃO PADRÃO"]'::jsonb, 'Noite', '03:00:00', '04:00:00', 1, 10, '[]'::jsonb, 'semanal', '{0,1,2,3,4,5,6}', null),
-  ('sub-gerente-noturno-21', 'sub-gerente-noturno', 'VERIFICAR SE O TIME DE SEGURANÇA ESTA FAZENDO A ROTINA CORRETA PARA PREVENÇÃO DE FURTO E ROUBO ( CHECK LIST E GRUPO NO WHATSAPP ).', null, 'SUB Gerente Noturno', 'pendente', 21, 'enquete', '["PADRÃO","NÃO PADRÃO"]'::jsonb, 'Noite', '21:30:00', '05:50:00', 0, null, '[]'::jsonb, 'semanal', '{0,1,2,3,4,5,6}', null),
-  ('sub-gerente-noturno-22', 'sub-gerente-noturno', 'VERIFIQUE SE LIXO, PALETE, PAPELÃO E CARRINHO DA LIMPEZA FOI DIRECIONADO AO LOCAL CORRETO', null, 'SUB Gerente Noturno', 'pendente', 22, 'enquete', '["SIM","NÃO"]'::jsonb, 'Manhã', '05:00:00', '05:50:00', 1, 50, '[]'::jsonb, 'semanal', '{0,1,2,3,4,5,6}', null),
-  ('sub-gerente-noturno-23', 'sub-gerente-noturno', 'SINALIZAR SUB GERENTE DO DIURNO AS PENDENCIAS E PRIORIDADES DE REPOSIÇÃO', null, 'SUB Gerente Noturno', 'pendente', 23, 'enquete', '["SIM","NÃO"]'::jsonb, 'Manhã', '05:00:00', '05:50:00', 0, null, '[]'::jsonb, 'semanal', '{0,1,2,3,4,5,6}', null),
-  ('sub-gerente-noturno-24', 'sub-gerente-noturno', 'PORTAS GERAIS ( SE ESTAO TRANCADAS)', null, 'SUB Gerente Noturno', 'pendente', 24, 'enquete', '["SIM","NÃO"]'::jsonb, 'Manhã', '05:30:00', '06:30:00', 1, 50, '[]'::jsonb, 'semanal', '{0,1,2,3,4,5,6}', null),
-  ('sub-gerente-noturno-25', 'sub-gerente-noturno', 'DESLIGAR EXAUSTORES , VENTILADORES , COMPUTADORES E LUZES.', null, 'SUB Gerente Noturno', 'pendente', 25, 'enquete', '["SIM","NÃO"]'::jsonb, 'Manhã', '05:30:00', '06:30:00', 1, 20, '[]'::jsonb, 'semanal', '{0,1,2,3,4,5,6}', null);
+  ('sub-gerente-noturno-14', 'sub-gerente-noturno', 'PONTO EXTRA ( AÇÕES SEGUNDA A QUINTA )', 'FOTO DOS PONTO EXTRA', 'SUB Gerente Noturno', 'pendente', 14, 'enquete', '["SIM","NÃO"]'::jsonb, 'Noite', '21:30:00', '05:50:00', 1, 10, '[]'::jsonb, 'semanal', '{6}', null),
+  ('sub-gerente-noturno-15', 'sub-gerente-noturno', 'PONTO EXTRA ( AÇÕES SEXTA A DOMINGO )', 'FOTO DOS PONTO EXTRA', 'SUB Gerente Noturno', 'pendente', 15, 'enquete', '["SIM","NÃO"]'::jsonb, 'Noite', '21:30:00', '05:50:00', 1, 10, '[]'::jsonb, 'semanal', '{4}', null),
+  ('sub-gerente-noturno-16', 'sub-gerente-noturno', 'VERIFICAR SE O TIME ESTA FAZENDO A ROTINA CORRETA DA FUNÇAO ( TEMPO OCIOSO)', null, 'SUB Gerente Noturno', 'pendente', 16, 'enquete', '["SIM","NÃO"]'::jsonb, 'Noite', '22:00:00', '23:00:00', 1, 10, '[]'::jsonb, 'semanal', '{0,1,2,3,4,5,6}', null),
+  ('sub-gerente-noturno-17', 'sub-gerente-noturno', 'VERIFICAR SE O TIME ESTA FAZENDO A ROTINA CORRETA DA FUNÇAO ( TEMPO OCIOSO)', null, 'SUB Gerente Noturno', 'pendente', 17, 'enquete', '["SIM","NÃO"]'::jsonb, 'Noite', '01:00:00', '02:00:00', 1, 10, '[]'::jsonb, 'semanal', '{0,1,2,3,4,5,6}', null),
+  ('sub-gerente-noturno-18', 'sub-gerente-noturno', 'VERIFICAR SE O TIME ESTA FAZENDO A ROTINA CORRETA DA FUNÇAO ( TEMPO OCIOSO)', null, 'SUB Gerente Noturno', 'pendente', 18, 'enquete', '["SIM","NÃO"]'::jsonb, 'Manhã', '04:00:00', '05:00:00', 1, 10, '[]'::jsonb, 'semanal', '{0,1,2,3,4,5,6}', null),
+  ('sub-gerente-noturno-19', 'sub-gerente-noturno', 'VERIFICAR ESTOQUE DOS SETORES SE ESTA PADRÃO, ORGANIZADO E ALINHAR ESTRATEGIA DE ATUAÇÃO', null, 'SUB Gerente Noturno', 'pendente', 19, 'enquete', '["PADRÃO","NÃO PADRÃO"]'::jsonb, 'Noite', '03:00:00', '04:00:00', 1, 10, '[]'::jsonb, 'semanal', '{0,1,2,3,4,5,6}', null),
+  ('sub-gerente-noturno-20', 'sub-gerente-noturno', 'VERIFICAR SE O TIME DE SEGURANÇA ESTA FAZENDO A ROTINA CORRETA PARA PREVENÇÃO DE FURTO E ROUBO ( CHECK LIST E GRUPO NO WHATSAPP ).', null, 'SUB Gerente Noturno', 'pendente', 20, 'enquete', '["PADRÃO","NÃO PADRÃO"]'::jsonb, 'Noite', '21:30:00', '05:50:00', 0, null, '[]'::jsonb, 'semanal', '{0,1,2,3,4,5,6}', null),
+  ('sub-gerente-noturno-21', 'sub-gerente-noturno', 'VERIFIQUE SE LIXO, PALETE, PAPELÃO E CARRINHO DA LIMPEZA FOI DIRECIONADO AO LOCAL CORRETO', null, 'SUB Gerente Noturno', 'pendente', 21, 'enquete', '["SIM","NÃO"]'::jsonb, 'Manhã', '05:00:00', '05:50:00', 1, 50, '[]'::jsonb, 'semanal', '{0,1,2,3,4,5,6}', null),
+  ('sub-gerente-noturno-22', 'sub-gerente-noturno', 'SINALIZAR SUB GERENTE DO DIURNO AS PENDENCIAS E PRIORIDADES DE REPOSIÇÃO', null, 'SUB Gerente Noturno', 'pendente', 22, 'enquete', '["SIM","NÃO"]'::jsonb, 'Manhã', '05:00:00', '05:50:00', 0, null, '[]'::jsonb, 'semanal', '{0,1,2,3,4,5,6}', null),
+  ('sub-gerente-noturno-23', 'sub-gerente-noturno', 'PORTAS GERAIS ( SE ESTAO TRANCADAS)', null, 'SUB Gerente Noturno', 'pendente', 23, 'enquete', '["SIM","NÃO"]'::jsonb, 'Manhã', '05:30:00', '06:30:00', 1, 50, '[]'::jsonb, 'semanal', '{0,1,2,3,4,5,6}', null),
+  ('sub-gerente-noturno-24', 'sub-gerente-noturno', 'DESLIGAR EXAUSTORES , VENTILADORES , COMPUTADORES E LUZES.', null, 'SUB Gerente Noturno', 'pendente', 24, 'enquete', '["SIM","NÃO"]'::jsonb, 'Manhã', '05:30:00', '06:30:00', 1, 20, '[]'::jsonb, 'semanal', '{0,1,2,3,4,5,6}', null);
+
+-- Rotina completa 'Segurança Diurno' (30 atividades, reabre a cada 20 min)
+insert into checklists (id, nome, setor, ativo, reabre_automatico, reabre_intervalo_min) values
+  ('seguranca-diurno', 'Rotina completa ''Segurança Diurno''', 'Segurança Diurno', true, true, 20);
+insert into checklist_items
+  (id, checklist_id, titulo, detalhe, responsavel, status, posicao,
+   tipo_tarefa, resposta_opcoes, turno, horario_inicio, horario_termino,
+   min_anexos, max_anexos, anexos, recorrencia, dias_semana, inicio)
+values
+  ('seguranca-diurno-1', 'seguranca-diurno', 'FRENTE DA LOJA', null, 'Segurança Diurno', 'pendente', 1, 'enquete', '["PADRÃO","NÃO PADRÃO"]'::jsonb, null, null, null, 1, 10, '[]'::jsonb, 'semanal', '{0,1,2,3,4,5,6}', null),
+  ('seguranca-diurno-2', 'seguranca-diurno', 'CORREDOR BEBIDAS IMPORTADAS', null, 'Segurança Diurno', 'pendente', 2, 'enquete', '["PADRÃO","NÃO PADRÃO"]'::jsonb, null, null, null, 1, 10, '[]'::jsonb, 'semanal', '{0,1,2,3,4,5,6}', null),
+  ('seguranca-diurno-3', 'seguranca-diurno', 'CORREDOR BEBIDAS QUENTES 1', null, 'Segurança Diurno', 'pendente', 3, 'enquete', '["PADRÃO","NÃO PADRÃO"]'::jsonb, null, null, null, 1, 10, '[]'::jsonb, 'semanal', '{0,1,2,3,4,5,6}', null),
+  ('seguranca-diurno-4', 'seguranca-diurno', 'CORREDOR BEBIDAS QUENTES 2 + BOMBONIERE', null, 'Segurança Diurno', 'pendente', 4, 'enquete', '["PADRÃO","NÃO PADRÃO"]'::jsonb, null, null, null, 1, 10, '[]'::jsonb, 'semanal', '{0,1,2,3,4,5,6}', null),
+  ('seguranca-diurno-5', 'seguranca-diurno', 'CORREDOR SALADAINHOS E BOMBONIERE', null, 'Segurança Diurno', 'pendente', 5, 'enquete', '["PADRÃO","NÃO PADRÃO"]'::jsonb, null, null, null, 1, 10, '[]'::jsonb, 'semanal', '{0,1,2,3,4,5,6}', null),
+  ('seguranca-diurno-6', 'seguranca-diurno', 'SETOR DE AÇÃO FUNDO LOJA', null, 'Segurança Diurno', 'pendente', 6, 'enquete', '["PADRÃO","NÃO PADRÃO"]'::jsonb, null, null, null, 1, 10, '[]'::jsonb, 'semanal', '{0,1,2,3,4,5,6}', null),
+  ('seguranca-diurno-7', 'seguranca-diurno', 'CORREDOR MERCEARIA BRUTA', null, 'Segurança Diurno', 'pendente', 7, 'enquete', '["PADRÃO","NÃO PADRÃO"]'::jsonb, null, null, null, 1, 10, '[]'::jsonb, 'semanal', '{0,1,2,3,4,5,6}', null),
+  ('seguranca-diurno-8', 'seguranca-diurno', 'CORREDOR MASSAS E MOLHOS / MATINAIS', null, 'Segurança Diurno', 'pendente', 8, 'enquete', '["PADRÃO","NÃO PADRÃO"]'::jsonb, null, null, null, 1, 10, '[]'::jsonb, 'semanal', '{0,1,2,3,4,5,6}', null),
+  ('seguranca-diurno-9', 'seguranca-diurno', 'CORREDOR LIMPEZA / HIGIENE PESSOAL', null, 'Segurança Diurno', 'pendente', 9, 'enquete', '["PADRÃO","NÃO PADRÃO"]'::jsonb, null, null, null, 1, 10, '[]'::jsonb, 'semanal', '{0,1,2,3,4,5,6}', null),
+  ('seguranca-diurno-10', 'seguranca-diurno', 'CORREDOR EMBALAGENS / UTILIDADES', null, 'Segurança Diurno', 'pendente', 10, 'enquete', '["PADRÃO","NÃO PADRÃO"]'::jsonb, null, null, null, 1, 10, '[]'::jsonb, 'semanal', '{0,1,2,3,4,5,6}', null),
+  ('seguranca-diurno-11', 'seguranca-diurno', 'CORREDOR CERVEJAS', null, 'Segurança Diurno', 'pendente', 11, 'enquete', '["PADRÃO","NÃO PADRÃO"]'::jsonb, null, null, null, 1, 10, '[]'::jsonb, 'semanal', '{0,1,2,3,4,5,6}', null),
+  ('seguranca-diurno-12', 'seguranca-diurno', 'CORREDOR REFRIGERANTES / SUCOS', null, 'Segurança Diurno', 'pendente', 12, 'enquete', '["PADRÃO","NÃO PADRÃO"]'::jsonb, null, null, null, 1, 10, '[]'::jsonb, 'semanal', '{0,1,2,3,4,5,6}', null),
+  ('seguranca-diurno-13', 'seguranca-diurno', 'AÇOUGUE', null, 'Segurança Diurno', 'pendente', 13, 'enquete', '["PADRÃO","NÃO PADRÃO"]'::jsonb, null, null, null, 1, 10, '[]'::jsonb, 'semanal', '{0,1,2,3,4,5,6}', null),
+  ('seguranca-diurno-14', 'seguranca-diurno', 'MEZANINO TERREO ( ESTOQUE )', null, 'Segurança Diurno', 'pendente', 14, 'enquete', '["PADRÃO","NÃO PADRÃO"]'::jsonb, null, null, null, 1, 10, '[]'::jsonb, 'semanal', '{0,1,2,3,4,5,6}', null),
+  ('seguranca-diurno-15', 'seguranca-diurno', 'MEZANINO 1 ANDAR ( ESTOQUE )', null, 'Segurança Diurno', 'pendente', 15, 'enquete', '["PADRÃO","NÃO PADRÃO"]'::jsonb, null, null, null, 1, 10, '[]'::jsonb, 'semanal', '{0,1,2,3,4,5,6}', null),
+  ('seguranca-diurno-16', 'seguranca-diurno', 'PADARIA', null, 'Segurança Diurno', 'pendente', 16, 'enquete', '["PADRÃO","NÃO PADRÃO"]'::jsonb, null, null, null, 1, 10, '[]'::jsonb, 'semanal', '{0,1,2,3,4,5,6}', null),
+  ('seguranca-diurno-17', 'seguranca-diurno', 'HORT FRUTTI', null, 'Segurança Diurno', 'pendente', 17, 'enquete', '["PADRÃO","NÃO PADRÃO"]'::jsonb, null, null, null, 1, 10, '[]'::jsonb, 'semanal', '{0,1,2,3,4,5,6}', null),
+  ('seguranca-diurno-18', 'seguranca-diurno', 'GELADEIRAS / FREEZER', null, 'Segurança Diurno', 'pendente', 18, 'enquete', '["PADRÃO","NÃO PADRÃO"]'::jsonb, null, null, null, 1, 10, '[]'::jsonb, 'semanal', '{0,1,2,3,4,5,6}', null),
+  ('seguranca-diurno-19', 'seguranca-diurno', 'RAMPA DOS FUNDOS', null, 'Segurança Diurno', 'pendente', 19, 'enquete', '["PADRÃO","NÃO PADRÃO"]'::jsonb, null, null, null, 1, 10, '[]'::jsonb, 'semanal', '{0,1,2,3,4,5,6}', null),
+  ('seguranca-diurno-20', 'seguranca-diurno', 'RAMPA DA FRENTE ( ENTRADA )', null, 'Segurança Diurno', 'pendente', 20, 'enquete', '["PADRÃO","NÃO PADRÃO"]'::jsonb, null, null, null, 1, 10, '[]'::jsonb, 'semanal', '{0,1,2,3,4,5,6}', null),
+  ('seguranca-diurno-21', 'seguranca-diurno', 'ESTACIONAMENTO', null, 'Segurança Diurno', 'pendente', 21, 'enquete', '["PADRÃO","NÃO PADRÃO"]'::jsonb, null, null, null, 1, 10, '[]'::jsonb, 'semanal', '{0,1,2,3,4,5,6}', null),
+  ('seguranca-diurno-22', 'seguranca-diurno', 'BANHEIROS', null, 'Segurança Diurno', 'pendente', 22, 'enquete', '["PADRÃO","NÃO PADRÃO"]'::jsonb, null, null, null, 1, 10, '[]'::jsonb, 'semanal', '{0,1,2,3,4,5,6}', null),
+  ('seguranca-diurno-23', 'seguranca-diurno', 'ESTOQUE GALPÃO 3', null, 'Segurança Diurno', 'pendente', 23, 'enquete', '["PADRÃO","NÃO PADRÃO"]'::jsonb, null, null, null, 1, 10, '[]'::jsonb, 'semanal', '{0,1,2,3,4,5,6}', null),
+  ('seguranca-diurno-24', 'seguranca-diurno', 'ESTOQUE LIMPEZA', null, 'Segurança Diurno', 'pendente', 24, 'enquete', '["PADRÃO","NÃO PADRÃO"]'::jsonb, null, null, null, 1, 10, '[]'::jsonb, 'semanal', '{0,1,2,3,4,5,6}', null),
+  ('seguranca-diurno-25', 'seguranca-diurno', 'REFEITORIO 1', null, 'Segurança Diurno', 'pendente', 25, 'enquete', '["PADRÃO","NÃO PADRÃO"]'::jsonb, null, null, null, 1, 10, '[]'::jsonb, 'semanal', '{0,1,2,3,4,5,6}', null),
+  ('seguranca-diurno-26', 'seguranca-diurno', 'BANHEIRO', null, 'Segurança Diurno', 'pendente', 26, 'enquete', '["PADRÃO","NÃO PADRÃO"]'::jsonb, null, null, null, 1, 10, '[]'::jsonb, 'semanal', '{0,1,2,3,4,5,6}', null),
+  ('seguranca-diurno-27', 'seguranca-diurno', 'REFEITORIO 2', null, 'Segurança Diurno', 'pendente', 27, 'enquete', '["PADRÃO","NÃO PADRÃO"]'::jsonb, null, null, null, 1, 10, '[]'::jsonb, 'semanal', '{0,1,2,3,4,5,6}', null),
+  ('seguranca-diurno-28', 'seguranca-diurno', 'TERRENO DE TRÁS (OBRA)', null, 'Segurança Diurno', 'pendente', 28, 'enquete', '["PADRÃO","NÃO PADRÃO"]'::jsonb, null, null, null, 1, 10, '[]'::jsonb, 'semanal', '{0,1,2,3,4,5,6}', null),
+  ('seguranca-diurno-29', 'seguranca-diurno', 'ESTOQUE ( PAPEL HIGIENICO + EMBALAGENS )', null, 'Segurança Diurno', 'pendente', 29, 'enquete', '["PADRÃO","NÃO PADRÃO"]'::jsonb, null, null, null, 1, 10, '[]'::jsonb, 'semanal', '{0,1,2,3,4,5,6}', null),
+  ('seguranca-diurno-30', 'seguranca-diurno', 'MONITORIAMENTO', null, 'Segurança Diurno', 'pendente', 30, 'enquete', '["PADRÃO","NÃO PADRÃO"]'::jsonb, null, null, null, 1, 50, '[]'::jsonb, 'semanal', '{0,1,2,3,4,5,6}', null);
+
+-- Rotina completa 'Segurança Noturno' (29 atividades, reabre a cada 20 min)
+insert into checklists (id, nome, setor, ativo, reabre_automatico, reabre_intervalo_min) values
+  ('seguranca-noturno', 'Rotina completa ''Segurança Noturno''', 'Segurança Noturno', true, true, 20);
+insert into checklist_items
+  (id, checklist_id, titulo, detalhe, responsavel, status, posicao,
+   tipo_tarefa, resposta_opcoes, turno, horario_inicio, horario_termino,
+   min_anexos, max_anexos, anexos, recorrencia, dias_semana, inicio)
+values
+  ('seguranca-noturno-1', 'seguranca-noturno', 'FRENTE DA LOJA', null, 'Segurança Noturno', 'pendente', 1, 'enquete', '["PADRÃO","NÃO PADRÃO"]'::jsonb, null, null, null, 1, 10, '[]'::jsonb, 'semanal', '{0,1,2,3,4,5,6}', null),
+  ('seguranca-noturno-2', 'seguranca-noturno', 'CORREDOR BEBIDAS IMPORTADAS', null, 'Segurança Noturno', 'pendente', 2, 'enquete', '["PADRÃO","NÃO PADRÃO"]'::jsonb, null, null, null, 1, 10, '[]'::jsonb, 'semanal', '{0,1,2,3,4,5,6}', null),
+  ('seguranca-noturno-3', 'seguranca-noturno', 'CORREDOR BEBIDAS QUENTES 1', null, 'Segurança Noturno', 'pendente', 3, 'enquete', '["PADRÃO","NÃO PADRÃO"]'::jsonb, null, null, null, 1, 10, '[]'::jsonb, 'semanal', '{0,1,2,3,4,5,6}', null),
+  ('seguranca-noturno-4', 'seguranca-noturno', 'CORREDOR BEBIDAS QUENTES 2 + BOMBONIERE', null, 'Segurança Noturno', 'pendente', 4, 'enquete', '["PADRÃO","NÃO PADRÃO"]'::jsonb, null, null, null, 1, 10, '[]'::jsonb, 'semanal', '{0,1,2,3,4,5,6}', null),
+  ('seguranca-noturno-5', 'seguranca-noturno', 'CORREDOR SALADAINHOS E BOMBONIERE', null, 'Segurança Noturno', 'pendente', 5, 'enquete', '["PADRÃO","NÃO PADRÃO"]'::jsonb, null, null, null, 1, 10, '[]'::jsonb, 'semanal', '{0,1,2,3,4,5,6}', null),
+  ('seguranca-noturno-6', 'seguranca-noturno', 'SETOR DE AÇÃO FUNDO LOJA', null, 'Segurança Noturno', 'pendente', 6, 'enquete', '["PADRÃO","NÃO PADRÃO"]'::jsonb, null, null, null, 1, 10, '[]'::jsonb, 'semanal', '{0,1,2,3,4,5,6}', null),
+  ('seguranca-noturno-7', 'seguranca-noturno', 'CORREDOR MERCEARIA BRUTA', null, 'Segurança Noturno', 'pendente', 7, 'enquete', '["PADRÃO","NÃO PADRÃO"]'::jsonb, null, null, null, 1, 10, '[]'::jsonb, 'semanal', '{0,1,2,3,4,5,6}', null),
+  ('seguranca-noturno-8', 'seguranca-noturno', 'CORREDOR MASSAS E MOLHOS / MATINAIS', null, 'Segurança Noturno', 'pendente', 8, 'enquete', '["PADRÃO","NÃO PADRÃO"]'::jsonb, null, null, null, 1, 10, '[]'::jsonb, 'semanal', '{0,1,2,3,4,5,6}', null),
+  ('seguranca-noturno-9', 'seguranca-noturno', 'CORREDOR LIMPEZA / HIGIENE PESSOAL', null, 'Segurança Noturno', 'pendente', 9, 'enquete', '["PADRÃO","NÃO PADRÃO"]'::jsonb, null, null, null, 1, 10, '[]'::jsonb, 'semanal', '{0,1,2,3,4,5,6}', null),
+  ('seguranca-noturno-10', 'seguranca-noturno', 'CORREDOR EMBALAGENS / UTILIDADES', null, 'Segurança Noturno', 'pendente', 10, 'enquete', '["PADRÃO","NÃO PADRÃO"]'::jsonb, null, null, null, 1, 10, '[]'::jsonb, 'semanal', '{0,1,2,3,4,5,6}', null),
+  ('seguranca-noturno-11', 'seguranca-noturno', 'CORREDOR CERVEJAS', null, 'Segurança Noturno', 'pendente', 11, 'enquete', '["PADRÃO","NÃO PADRÃO"]'::jsonb, null, null, null, 1, 10, '[]'::jsonb, 'semanal', '{0,1,2,3,4,5,6}', null),
+  ('seguranca-noturno-12', 'seguranca-noturno', 'CORREDOR REFRIGERANTES / SUCOS', null, 'Segurança Noturno', 'pendente', 12, 'enquete', '["PADRÃO","NÃO PADRÃO"]'::jsonb, null, null, null, 1, 10, '[]'::jsonb, 'semanal', '{0,1,2,3,4,5,6}', null),
+  ('seguranca-noturno-13', 'seguranca-noturno', 'AÇOUGUE', null, 'Segurança Noturno', 'pendente', 13, 'enquete', '["PADRÃO","NÃO PADRÃO"]'::jsonb, null, null, null, 1, 10, '[]'::jsonb, 'semanal', '{0,1,2,3,4,5,6}', null),
+  ('seguranca-noturno-14', 'seguranca-noturno', 'MEZANINO TERREO ( ESTOQUE )', null, 'Segurança Noturno', 'pendente', 14, 'enquete', '["PADRÃO","NÃO PADRÃO"]'::jsonb, null, null, null, 1, 10, '[]'::jsonb, 'semanal', '{0,1,2,3,4,5,6}', null),
+  ('seguranca-noturno-15', 'seguranca-noturno', 'MEZANINO 1 ANDAR ( ESTOQUE )', null, 'Segurança Noturno', 'pendente', 15, 'enquete', '["PADRÃO","NÃO PADRÃO"]'::jsonb, null, null, null, 1, 10, '[]'::jsonb, 'semanal', '{0,1,2,3,4,5,6}', null),
+  ('seguranca-noturno-16', 'seguranca-noturno', 'PADARIA', null, 'Segurança Noturno', 'pendente', 16, 'enquete', '["PADRÃO","NÃO PADRÃO"]'::jsonb, null, null, null, 1, 10, '[]'::jsonb, 'semanal', '{0,1,2,3,4,5,6}', null),
+  ('seguranca-noturno-17', 'seguranca-noturno', 'HORT FRUTTI', null, 'Segurança Noturno', 'pendente', 17, 'enquete', '["PADRÃO","NÃO PADRÃO"]'::jsonb, null, null, null, 1, 10, '[]'::jsonb, 'semanal', '{0,1,2,3,4,5,6}', null),
+  ('seguranca-noturno-18', 'seguranca-noturno', 'GELADEIRAS / FREEZER', null, 'Segurança Noturno', 'pendente', 18, 'enquete', '["PADRÃO","NÃO PADRÃO"]'::jsonb, null, null, null, 1, 10, '[]'::jsonb, 'semanal', '{0,1,2,3,4,5,6}', null),
+  ('seguranca-noturno-19', 'seguranca-noturno', 'RAMPA DOS FUNDOS', null, 'Segurança Noturno', 'pendente', 19, 'enquete', '["PADRÃO","NÃO PADRÃO"]'::jsonb, null, null, null, 1, 10, '[]'::jsonb, 'semanal', '{0,1,2,3,4,5,6}', null),
+  ('seguranca-noturno-20', 'seguranca-noturno', 'RAMPA DA FRENTE ( ENTRADA )', null, 'Segurança Noturno', 'pendente', 20, 'enquete', '["PADRÃO","NÃO PADRÃO"]'::jsonb, null, null, null, 1, 10, '[]'::jsonb, 'semanal', '{0,1,2,3,4,5,6}', null),
+  ('seguranca-noturno-21', 'seguranca-noturno', 'ESTACIONAMENTO', null, 'Segurança Noturno', 'pendente', 21, 'enquete', '["PADRÃO","NÃO PADRÃO"]'::jsonb, null, null, null, 1, 10, '[]'::jsonb, 'semanal', '{0,1,2,3,4,5,6}', null),
+  ('seguranca-noturno-22', 'seguranca-noturno', 'BANHEIROS', null, 'Segurança Noturno', 'pendente', 22, 'enquete', '["PADRÃO","NÃO PADRÃO"]'::jsonb, null, null, null, 1, 10, '[]'::jsonb, 'semanal', '{0,1,2,3,4,5,6}', null),
+  ('seguranca-noturno-23', 'seguranca-noturno', 'ESTOQUE GALPÃO 3', null, 'Segurança Noturno', 'pendente', 23, 'enquete', '["PADRÃO","NÃO PADRÃO"]'::jsonb, null, null, null, 1, 10, '[]'::jsonb, 'semanal', '{0,1,2,3,4,5,6}', null),
+  ('seguranca-noturno-24', 'seguranca-noturno', 'ESTOQUE LIMPEZA', null, 'Segurança Noturno', 'pendente', 24, 'enquete', '["PADRÃO","NÃO PADRÃO"]'::jsonb, null, null, null, 1, 10, '[]'::jsonb, 'semanal', '{0,1,2,3,4,5,6}', null),
+  ('seguranca-noturno-25', 'seguranca-noturno', 'REFEITORIO 1', null, 'Segurança Noturno', 'pendente', 25, 'enquete', '["PADRÃO","NÃO PADRÃO"]'::jsonb, null, null, null, 1, 10, '[]'::jsonb, 'semanal', '{0,1,2,3,4,5,6}', null),
+  ('seguranca-noturno-26', 'seguranca-noturno', 'BANHEIRO', null, 'Segurança Noturno', 'pendente', 26, 'enquete', '["PADRÃO","NÃO PADRÃO"]'::jsonb, null, null, null, 1, 10, '[]'::jsonb, 'semanal', '{0,1,2,3,4,5,6}', null),
+  ('seguranca-noturno-27', 'seguranca-noturno', 'REFEITORIO 2', null, 'Segurança Noturno', 'pendente', 27, 'enquete', '["PADRÃO","NÃO PADRÃO"]'::jsonb, null, null, null, 1, 10, '[]'::jsonb, 'semanal', '{0,1,2,3,4,5,6}', null),
+  ('seguranca-noturno-28', 'seguranca-noturno', 'TERRENO DE TRÁS (OBRA)', null, 'Segurança Noturno', 'pendente', 28, 'enquete', '["PADRÃO","NÃO PADRÃO"]'::jsonb, null, null, null, 1, 10, '[]'::jsonb, 'semanal', '{0,1,2,3,4,5,6}', null),
+  ('seguranca-noturno-29', 'seguranca-noturno', 'ESTOQUE ( PAPEL HIGIENICO + EMBALAGENS )', null, 'Segurança Noturno', 'pendente', 29, 'enquete', '["PADRÃO","NÃO PADRÃO"]'::jsonb, null, null, null, 1, 10, '[]'::jsonb, 'semanal', '{0,1,2,3,4,5,6}', null);
 
 -- Rotina completa 'Lider(Adega)' (21 atividades)
-insert into checklists (id, nome, setor, ativo) values
-  ('lider-adega', 'Rotina completa ''Lider(Adega)''', 'Lider(Adega)', true);
+insert into checklists (id, nome, setor, ativo, reabre_automatico, reabre_intervalo_min) values
+  ('lider-adega', 'Rotina completa ''Lider(Adega)''', 'Lider(Adega)', true, false, null);
 insert into checklist_items
   (id, checklist_id, titulo, detalhe, responsavel, status, posicao,
    tipo_tarefa, resposta_opcoes, turno, horario_inicio, horario_termino,
@@ -255,8 +334,8 @@ values
   ('lider-adega-21', 'lider-adega', 'HORARIO ALMOÇO', 'ENTRADA E SAIDA', 'Lider(Adega)', 'pendente', 21, 'enquete', '["SIM","NÃO"]'::jsonb, 'Tarde', '13:00:00', '14:00:00', 1, 2, '[]'::jsonb, 'semanal', '{0,1,2,3,4,5,6}', null);
 
 -- Rotina completa 'Lider(Café)' (21 atividades)
-insert into checklists (id, nome, setor, ativo) values
-  ('lider-cafe', 'Rotina completa ''Lider(Café)''', 'Lider(Café)', true);
+insert into checklists (id, nome, setor, ativo, reabre_automatico, reabre_intervalo_min) values
+  ('lider-cafe', 'Rotina completa ''Lider(Café)''', 'Lider(Café)', true, false, null);
 insert into checklist_items
   (id, checklist_id, titulo, detalhe, responsavel, status, posicao,
    tipo_tarefa, resposta_opcoes, turno, horario_inicio, horario_termino,
@@ -285,8 +364,8 @@ values
   ('lider-cafe-21', 'lider-cafe', 'HORARIO ALMOÇO', 'ENTRADA E SAIDA', 'Lider(Café)', 'pendente', 21, 'enquete', '["SIM","NÃO"]'::jsonb, 'Tarde', '12:00:00', '13:00:00', 1, 2, '[]'::jsonb, 'semanal', '{0,1,2,3,4,5,6}', null);
 
 -- Rotina completa 'Lider(Limpeza)' (20 atividades)
-insert into checklists (id, nome, setor, ativo) values
-  ('lider-limpeza', 'Rotina completa ''Lider(Limpeza)''', 'Lider(Limpeza)', true);
+insert into checklists (id, nome, setor, ativo, reabre_automatico, reabre_intervalo_min) values
+  ('lider-limpeza', 'Rotina completa ''Lider(Limpeza)''', 'Lider(Limpeza)', true, false, null);
 insert into checklist_items
   (id, checklist_id, titulo, detalhe, responsavel, status, posicao,
    tipo_tarefa, resposta_opcoes, turno, horario_inicio, horario_termino,
@@ -314,8 +393,8 @@ values
   ('lider-limpeza-20', 'lider-limpeza', 'HORARIO ALMOÇO', 'ENTRADA E SAIDA', 'Lider(Limpeza)', 'pendente', 20, 'enquete', '["SIM","NÃO"]'::jsonb, 'Tarde', '16:00:00', '17:00:00', 1, 2, '[]'::jsonb, 'semanal', '{0,1,2,3,4,5,6}', null);
 
 -- Rotina completa 'Lider(Cerveja)' (20 atividades)
-insert into checklists (id, nome, setor, ativo) values
-  ('lider-cerveja', 'Rotina completa ''Lider(Cerveja)''', 'Lider(Cerveja)', true);
+insert into checklists (id, nome, setor, ativo, reabre_automatico, reabre_intervalo_min) values
+  ('lider-cerveja', 'Rotina completa ''Lider(Cerveja)''', 'Lider(Cerveja)', true, false, null);
 insert into checklist_items
   (id, checklist_id, titulo, detalhe, responsavel, status, posicao,
    tipo_tarefa, resposta_opcoes, turno, horario_inicio, horario_termino,
@@ -343,8 +422,8 @@ values
   ('lider-cerveja-20', 'lider-cerveja', 'HORARIO ALMOÇO', 'ENTRADA E SAIDA', 'Lider(Cerveja)', 'pendente', 20, 'enquete', '["SIM","NÃO"]'::jsonb, 'Tarde', '16:00:00', '17:00:00', 1, 2, '[]'::jsonb, 'semanal', '{0,1,2,3,4,5,6}', null);
 
 -- Rotina completa 'Lider(Pereciveis)' (18 atividades)
-insert into checklists (id, nome, setor, ativo) values
-  ('lider-pereciveis', 'Rotina completa ''Lider(Pereciveis)''', 'Lider(Pereciveis)', true);
+insert into checklists (id, nome, setor, ativo, reabre_automatico, reabre_intervalo_min) values
+  ('lider-pereciveis', 'Rotina completa ''Lider(Pereciveis)''', 'Lider(Pereciveis)', true, false, null);
 insert into checklist_items
   (id, checklist_id, titulo, detalhe, responsavel, status, posicao,
    tipo_tarefa, resposta_opcoes, turno, horario_inicio, horario_termino,
@@ -370,8 +449,8 @@ values
   ('lider-pereciveis-18', 'lider-pereciveis', 'VERIFICAR NOS ITENS FRACIONADOS ( ETIQUETA COM RECEITA NUTRICIONAL , DATA DE EMBALAMENTO E VALIDADE)', null, 'Lider(Pereciveis)', 'pendente', 18, 'enquete', '["SIM","NÃO"]'::jsonb, 'Manhã', '08:00:00', '17:00:00', 1, null, '[]'::jsonb, 'semanal', '{0,1,2,3,4,5,6}', null);
 
 -- Rotina completa 'Lider(Açougue)' (Diurno) (23 atividades)
-insert into checklists (id, nome, setor, ativo) values
-  ('lider-acougue-diurno', 'Rotina completa ''Lider(Açougue)'' (Diurno)', 'Lider(Açougue)', true);
+insert into checklists (id, nome, setor, ativo, reabre_automatico, reabre_intervalo_min) values
+  ('lider-acougue-diurno', 'Rotina completa ''Lider(Açougue)'' (Diurno)', 'Lider(Açougue)', true, false, null);
 insert into checklist_items
   (id, checklist_id, titulo, detalhe, responsavel, status, posicao,
    tipo_tarefa, resposta_opcoes, turno, horario_inicio, horario_termino,
@@ -402,8 +481,8 @@ values
   ('lider-acougue-diurno-23', 'lider-acougue-diurno', 'VERIFICAR NOS ITENS FRACIONADOS ( ETIQUETA COM RECEITA NUTRICIONAL , DATA DE EMBALAMENTO E VALIDADE)', null, 'Lider(Açougue)', 'pendente', 23, 'enquete', '["SIM","NÃO"]'::jsonb, 'Manhã', '08:00:00', '17:00:00', 1, 20, '[]'::jsonb, 'semanal', '{0,1,2,3,4,5,6}', null);
 
 -- Rotina completa 'Lider(Açougue)' (Noturno) (23 atividades)
-insert into checklists (id, nome, setor, ativo) values
-  ('lider-acougue-noturno', 'Rotina completa ''Lider(Açougue)'' (Noturno)', 'Lider(Açougue)', true);
+insert into checklists (id, nome, setor, ativo, reabre_automatico, reabre_intervalo_min) values
+  ('lider-acougue-noturno', 'Rotina completa ''Lider(Açougue)'' (Noturno)', 'Lider(Açougue)', true, false, null);
 insert into checklist_items
   (id, checklist_id, titulo, detalhe, responsavel, status, posicao,
    tipo_tarefa, resposta_opcoes, turno, horario_inicio, horario_termino,
@@ -434,8 +513,8 @@ values
   ('lider-acougue-noturno-23', 'lider-acougue-noturno', 'FECHAMENTO ( LIMPEZA GERAL ) LAVANDO TODOS OS PONTOS .', null, 'Lider(Açougue)', 'pendente', 23, 'enquete', '["SIM","NÃO"]'::jsonb, 'Noite', '20:30:00', '21:30:00', 1, 50, '[]'::jsonb, 'semanal', '{0,1,2,3,4,5,6}', null);
 
 -- Rotina completa 'Lider(Patio)' (32 atividades)
-insert into checklists (id, nome, setor, ativo) values
-  ('lider-patio', 'Rotina completa ''Lider(Patio)''', 'Lider(Patio)', true);
+insert into checklists (id, nome, setor, ativo, reabre_automatico, reabre_intervalo_min) values
+  ('lider-patio', 'Rotina completa ''Lider(Patio)''', 'Lider(Patio)', true, false, null);
 insert into checklist_items
   (id, checklist_id, titulo, detalhe, responsavel, status, posicao,
    tipo_tarefa, resposta_opcoes, turno, horario_inicio, horario_termino,
