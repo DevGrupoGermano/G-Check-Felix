@@ -3,7 +3,6 @@ import { createFileRoute } from "@tanstack/react-router";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
-import { Store } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -23,6 +22,12 @@ export const Route = createFileRoute("/login")({
   }),
   component: LoginPage,
 });
+
+// Paleta da tela de login (cliente Supermercado Felix):
+// - fundo: amarelo mostarda um pouco claro
+// - caixa do formulário: vermelho um pouco mais forte e escuro
+const COR_FUNDO = "#FFDA24";
+const COR_FORM = "#BF2020";
 
 const loginSchema = z.object({
   email: z.string().trim().min(1, "Informe o e-mail.").email("E-mail inválido."),
@@ -54,19 +59,27 @@ function LoginPage() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background px-4">
-      <div className="w-full max-w-sm space-y-6">
-        <div className="flex flex-col items-center gap-2 text-center">
-          <span className="flex size-11 items-center justify-center rounded-xl bg-primary/12 text-primary">
-            <Store className="size-5.5" />
-          </span>
-          <div>
-            <h1 className="text-lg font-semibold tracking-tight">G-check</h1>
-            <p className="text-sm text-muted-foreground">Entre para acessar as rotinas da loja.</p>
-          </div>
-        </div>
+    <div
+      className="flex min-h-screen items-center justify-center px-4 py-10"
+      style={{ backgroundColor: COR_FUNDO }}
+    >
+      <div className="flex w-full max-w-sm flex-col items-center gap-6">
+        {/* Logo do cliente, acima e fora do formulário. */}
+        <img
+          src="/logo-felix.png"
+          alt="Supermercado Felix"
+          className="h-36 w-auto drop-shadow-sm"
+        />
 
-        <div className="rounded-2xl border border-border bg-card p-6 shadow-sm">
+        <div
+          className="w-full rounded-2xl p-6 text-white shadow-lg"
+          style={{ backgroundColor: COR_FORM }}
+        >
+          <div className="mb-5 text-center">
+            <h1 className="text-lg font-semibold tracking-tight">G-check</h1>
+            <p className="text-sm text-white/80">Entre para acessar as rotinas da loja.</p>
+          </div>
+
           <Form {...form}>
             <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
               <FormField
@@ -74,11 +87,16 @@ function LoginPage() {
                 name="email"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>E-mail</FormLabel>
+                    <FormLabel className="text-white">E-mail</FormLabel>
                     <FormControl>
-                      <Input type="email" placeholder="voce@empresa.com" {...field} />
+                      <Input
+                        type="email"
+                        placeholder="voce@empresa.com"
+                        className="border-transparent bg-white text-neutral-900 placeholder:text-neutral-400"
+                        {...field}
+                      />
                     </FormControl>
-                    <FormMessage />
+                    <FormMessage className="text-yellow-200" />
                   </FormItem>
                 )}
               />
@@ -87,27 +105,39 @@ function LoginPage() {
                 name="senha"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Senha</FormLabel>
+                    <FormLabel className="text-white">Senha</FormLabel>
                     <FormControl>
-                      <Input type="password" placeholder="••••••••" {...field} />
+                      <Input
+                        type="password"
+                        placeholder="••••••••"
+                        className="border-transparent bg-white text-neutral-900 placeholder:text-neutral-400"
+                        {...field}
+                      />
                     </FormControl>
-                    <FormMessage />
+                    <FormMessage className="text-yellow-200" />
                   </FormItem>
                 )}
               />
 
-              {erro && <p className="text-sm text-destructive">{erro}</p>}
+              {erro && <p className="text-sm font-medium text-yellow-200">{erro}</p>}
 
-              <Button type="submit" className="w-full" disabled={enviando}>
+              <Button
+                type="submit"
+                className="w-full bg-white text-[#BF2020] hover:bg-white/90"
+                disabled={enviando}
+              >
                 {enviando ? "Entrando…" : "Entrar"}
               </Button>
             </form>
           </Form>
+
+          <p className="mt-4 text-center text-xs text-white/75">
+            Sem acesso? Fale com o administrador da sua loja.
+          </p>
         </div>
 
-        <p className="text-center text-xs text-muted-foreground">
-          Sem acesso? Fale com o administrador da sua loja.
-        </p>
+        {/* Logo G-tech, abaixo e fora do formulário. */}
+        <img src="/logo-gtech.png" alt="G-tech" className="h-28 w-auto opacity-90" />
       </div>
     </div>
   );
