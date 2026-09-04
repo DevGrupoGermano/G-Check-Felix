@@ -228,7 +228,10 @@ function PizzaTarefas({ dados }: { dados: AgregadoTarefas[] }) {
   );
 
   return (
-    <ChartContainer config={config} className="mx-auto mt-4 aspect-square max-h-[260px]">
+    <ChartContainer
+      config={config}
+      className="mx-auto mt-4 aspect-square w-full max-w-[260px]"
+    >
       <PieChart>
         <ChartTooltip content={<ChartTooltipContent nameKey="chave" hideLabel />} />
         <Pie data={data} dataKey="total" nameKey="chave" innerRadius={55} strokeWidth={2}>
@@ -297,15 +300,15 @@ function TarefasBreakdown({
   const [vista, setVista] = React.useState<VistaTarefas>("barras");
 
   return (
-    <section className="rounded-2xl border border-border bg-card p-5 shadow-sm">
+    <section className="min-w-0 overflow-hidden rounded-2xl border border-border bg-card p-5 shadow-sm">
       <div className="flex items-start justify-between gap-3">
-        <div className="flex items-center gap-2">
-          <span className="flex size-8 items-center justify-center rounded-lg bg-muted text-muted-foreground">
+        <div className="flex min-w-0 flex-1 items-center gap-2">
+          <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
             <Icon className="size-4" />
           </span>
-          <div>
-            <h2 className="text-base font-semibold tracking-tight">{titulo}</h2>
-            <p className="text-xs text-muted-foreground">{descricao}</p>
+          <div className="min-w-0">
+            <h2 className="truncate text-base font-semibold tracking-tight">{titulo}</h2>
+            <p className="truncate text-xs text-muted-foreground">{descricao}</p>
           </div>
         </div>
         <ToggleGroup
