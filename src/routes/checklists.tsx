@@ -1272,27 +1272,28 @@ function TarefaRow({
   const travaConclusao = anexosPendentes || respostaPendente;
 
   return (
-    <li className="flex flex-wrap items-center gap-x-3 gap-y-2 p-4">
+    <li className="flex flex-wrap items-start gap-x-3 gap-y-2 p-4">
       <button
-        onClick={() => !bloqueado && !travaConclusao && toggleItem(c.id, i.id)}
-        disabled={bloqueado || travaConclusao}
+        onClick={() => !bloqueado && !travaConclusao && !feito && toggleItem(c.id, i.id)}
+        disabled={bloqueado || travaConclusao || feito}
         aria-label={
           bloqueado
             ? "Rotina desativada hoje"
-            : anexosPendentes
-              ? `Anexe os arquivos para concluir ${i.titulo}`
-              : respostaPendente
-                ? `Escolha uma resposta para concluir ${i.titulo}`
-                : feito
-                  ? `Reabrir ${i.titulo}`
+            : feito
+              ? `${i.titulo} concluída — só um administrador pode reabrir`
+              : anexosPendentes
+                ? `Anexe os arquivos para concluir ${i.titulo}`
+                : respostaPendente
+                  ? `Escolha uma resposta para concluir ${i.titulo}`
                   : `Concluir ${i.titulo}`
         }
         className={cn(
-          "flex size-5 shrink-0 items-center justify-center rounded-md border transition-colors",
+          "mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-md border transition-colors",
           feito
             ? "border-primary bg-primary text-primary-foreground"
             : "border-input hover:border-primary",
           (bloqueado || travaConclusao) && "cursor-not-allowed opacity-50 hover:border-input",
+          feito && "cursor-default",
         )}
       >
         {feito && <Check className="size-3.5" />}
@@ -1301,7 +1302,7 @@ function TarefaRow({
       <div className="min-w-0 flex-1 basis-48">
         <p
           className={cn(
-            "truncate text-sm font-medium",
+            "break-words text-sm font-medium",
             feito && "text-muted-foreground line-through",
           )}
         >
@@ -1323,8 +1324,8 @@ function TarefaRow({
         )}
       </div>
 
-      <div className="flex shrink-0 items-center gap-3 pl-8 sm:pl-0">
-        <div className="flex flex-col items-end gap-0.5 text-xs text-muted-foreground">
+      <div className="flex w-full shrink-0 items-center justify-between gap-3 pl-8 sm:w-auto sm:justify-end sm:pl-0">
+        <div className="flex flex-col items-start gap-0.5 text-xs text-muted-foreground sm:items-end">
           {(i.horarioInicio || i.turno) && (
             <span className="inline-flex items-center gap-1">
               <Clock className="size-3.5" />{" "}

@@ -459,8 +459,8 @@ export function GCheckProvider({ children }: { children: React.ReactNode }) {
     [queryClient, toggleItemMutation],
   );
 
-  // Enquete: grava só a coluna alvo (resposta ou justificativa). O responsável
-  // ainda precisa concluir o item pelo checkbox depois de escolher a opção.
+  // Enquete: grava a resposta/justificativa e, quando a resposta já satisfaz a
+  // tarefa (anexos mínimos já anexados), conclui junto — dispensa o checkbox.
   const patchItemMutation = useMutation({
     mutationFn: async ({
       itemId,
@@ -468,7 +468,7 @@ export function GCheckProvider({ children }: { children: React.ReactNode }) {
     }: {
       checklistId: string;
       itemId: string;
-      patch: { resposta?: string | null; justificativa?: string | null };
+      patch: { resposta?: string | null; justificativa?: string | null; status?: ItemStatus };
     }) => {
       const { error } = await supabase.from("checklist_items").update(patch).eq("id", itemId);
       if (error) throw error;
@@ -494,10 +494,22 @@ export function GCheckProvider({ children }: { children: React.ReactNode }) {
 
   const responderEnquete = React.useCallback(
     (checklistId: string, itemId: string, resposta: string) => {
-      aplicarPatchNoCache(checklistId, itemId, { resposta });
-      patchItemMutation.mutate({ checklistId, itemId, patch: { resposta } });
+      // Enquete não depende do check manual: escolher a opção já conclui a
+      // tarefa, desde que os anexos mínimos (quando exigidos) já tenham sido
+      // enviados. Se ainda faltar anexo, só grava a resposta — a conclusão
+      // acontece no anexarArquivo, quando o último anexo obrigatório entra.
+      const atual = (queryClient.getQueryData<Checklist[]>(QUERY_KEY) ?? [])
+        .find((c) => c.id === checklistId)
+        ?.itens.find((i) => i.id === itemId);
+      const podeConcluir =
+        !!atual && atual.status !== "concluido" && atual.anexos.length >= atual.minAnexos;
+      const patch = podeConcluir
+        ? { resposta, status: "concluido" as ItemStatus }
+        : { resposta };
+      aplicarPatchNoCache(checklistId, itemId, patch);
+      patchItemMutation.mutate({ checklistId, itemId, patch });
     },
-    [aplicarPatchNoCache, patchItemMutation],
+    [aplicarPatchNoCache, patchItemMutation, queryClient],
   );
 
   const justificarItem = React.useCallback(
@@ -652,16 +664,24 @@ export function GCheckProvider({ children }: { children: React.ReactNode }) {
 
       // Acrescenta ao array atual e regrava a lista inteira.
       const proximos = [...anexosDoItem(checklistId, itemId), novo];
+      // Enquete já respondida: o anexo que fecha o mínimo exigido conclui a
+      // tarefa junto — sem depender do checkbox (mesma regra do responderEnquete).
+      const concluiJunto =
+        item?.tipoTarefa === "enquete" &&
+        item.status !== "concluido" &&
+        !!item.resposta &&
+        proximos.length >= item.minAnexos;
       const { error: updateError } = await supabase
         .from("checklist_items")
-        .update({ anexos: proximos })
+        .update(concluiJunto ? { anexos: proximos, status: "concluido" } : { anexos: proximos })
         .eq("id", itemId);
       if (updateError) throw updateError;
 
-      return { checklistId, itemId, proximos };
+      return { checklistId, itemId, proximos, concluiJunto };
     },
-    onSuccess: ({ checklistId, itemId, proximos }) => {
+    onSuccess: ({ checklistId, itemId, proximos, concluiJunto }) => {
       setAnexosNoCache(checklistId, itemId, proximos);
+      if (concluiJunto) aplicarPatchNoCache(checklistId, itemId, { status: "concluido" });
       toast.success("Arquivo anexado.");
     },
     onError: (err) =>
