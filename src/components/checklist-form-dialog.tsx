@@ -355,23 +355,6 @@ function ChecklistFormDialog({ checklist }: { checklist?: Checklist }) {
                   );
                 }}
               />
-              <FormField
-                control={form.control}
-                name="tempoLimite"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Tempo limite (opcional)</FormLabel>
-                    <FormControl>
-                      <Input type="time" {...field} />
-                    </FormControl>
-                    <p className="text-xs text-muted-foreground">
-                      Passou daqui sem concluir, a rotina fica “Atrasada”. Em branco, usa o
-                      último término das atividades.
-                    </p>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
               <div className="rounded-xl border border-border p-3 text-xs text-muted-foreground sm:col-span-2">
                 <span className="font-medium text-foreground">Agenda (automática): </span>
                 {agenda.turnos.length > 0 || agenda.horarioInicio
