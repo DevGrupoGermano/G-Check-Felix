@@ -2,7 +2,7 @@
 -- G-check — notificação por e-mail: rotina concluída / rotina atrasada
 -- ----------------------------------------------------------------------------
 -- Mesmo padrão de reabertura automática (20260905140000): uma função
--- security definer, disparada por pg_cron a cada 15 min e, como rede de
+-- security definer, disparada por pg_cron a cada 5 min e, como rede de
 -- segurança, pelo client (GCheckProvider) no mesmo intervalo.
 --
 -- "Concluída"/"atrasada" usam exatamente a mesma regra da tela
@@ -266,7 +266,7 @@ begin
   execute 'create extension if not exists pg_cron';
   perform cron.schedule(
     'notificar-rotinas-email',
-    '*/15 * * * *',
+    '*/5 * * * *',
     'select public.notificar_rotinas()'
   );
 exception when others then

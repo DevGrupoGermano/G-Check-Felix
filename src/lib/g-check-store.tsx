@@ -379,7 +379,7 @@ export function GCheckProvider({ children }: { children: React.ReactNode }) {
   }, [session, queryClient]);
 
   // Notificação por e-mail (rotina concluída/atrasada): o pg_cron roda a cada
-  // 15 min; aqui o client cobre a mesma janela. Sem efeito colateral se a
+  // 5 min; aqui o client cobre a mesma janela. Sem efeito colateral se a
   // Resend ainda não foi configurada — notificar_rotinas() só volta (no-op).
   React.useEffect(() => {
     if (!session) return;
@@ -389,7 +389,7 @@ export function GCheckProvider({ children }: { children: React.ReactNode }) {
       });
     };
     rodar();
-    const id = window.setInterval(rodar, 15 * 60 * 1000);
+    const id = window.setInterval(rodar, 5 * 60 * 1000);
     return () => window.clearInterval(id);
   }, [session]);
 
