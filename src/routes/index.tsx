@@ -733,10 +733,12 @@ function Dashboard() {
         </div>
 
         <div className="grid gap-6 lg:grid-cols-5">
-          <section className="rounded-2xl border border-border bg-card p-5 shadow-sm lg:col-span-3">
+          <section className="min-w-0 overflow-hidden rounded-2xl border border-border bg-card p-5 shadow-sm lg:col-span-3">
             <div className="flex items-center justify-between gap-3">
-              <h2 className="text-base font-semibold tracking-tight">Progresso por rotina</h2>
-              <Button asChild size="sm" variant="outline">
+              <h2 className="truncate text-base font-semibold tracking-tight">
+                Progresso por rotina
+              </h2>
+              <Button asChild size="sm" variant="outline" className="shrink-0">
                 <Link to="/checklists">Ver checklists</Link>
               </Button>
             </div>
@@ -749,7 +751,7 @@ function Dashboard() {
                     <div className="flex items-center justify-between gap-3">
                       <div className="min-w-0">
                         <p className="truncate text-sm font-medium">{c.nome}</p>
-                        <p className="text-xs text-muted-foreground">
+                        <p className="truncate text-xs text-muted-foreground">
                           {[
                             c.turnos.join(" · "),
                             c.horarioInicio &&
@@ -793,21 +795,23 @@ function Dashboard() {
             </ul>
           </section>
 
-          <section className="rounded-2xl border border-border bg-card p-5 shadow-sm lg:col-span-2">
-            <h2 className="text-base font-semibold tracking-tight">Pendências em destaque</h2>
+          <section className="min-w-0 overflow-hidden rounded-2xl border border-border bg-card p-5 shadow-sm lg:col-span-2">
+            <h2 className="truncate text-base font-semibold tracking-tight">
+              Pendências em destaque
+            </h2>
             <p className="mt-1 text-xs text-muted-foreground">
               Itens que ainda precisam ser executados hoje.
             </p>
             <ul className="mt-4 space-y-3">
               {pendencias.map(({ c, i }) => (
-                <li key={i.id}>
+                <li key={i.id} className="min-w-0">
                   <Link
                     to="/checklists"
                     search={{ checklist: c.id }}
                     className="block rounded-xl bg-muted/60 p-3 transition-colors hover:bg-muted"
                   >
-                    <p className="text-sm font-medium">{i.titulo}</p>
-                    <p className="mt-1 text-xs text-muted-foreground">
+                    <p className="line-clamp-2 text-sm font-medium">{i.titulo}</p>
+                    <p className="mt-1 truncate text-xs text-muted-foreground">
                       {c.nome} · {i.responsavel}
                     </p>
                   </Link>
