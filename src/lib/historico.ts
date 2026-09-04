@@ -55,6 +55,18 @@ export async function reabrirAutomaticas(): Promise<void> {
   if (error) throw error;
 }
 
+/**
+ * Manda e-mail (via Resend) pros admins quando uma rotina bate 100% ou passa
+ * do horário limite sem terminar — no máximo 1 e-mail por rotina/dia/tipo
+ * (checklist_notificacoes). Idempotente no servidor — o pg_cron cobre o
+ * caminho normal; o client chama de tempos em tempos como rede de segurança.
+ * Sem custo se resend_api_key ainda não foi configurada no Vault (no-op).
+ */
+export async function notificarRotinas(): Promise<void> {
+  const { error } = await supabase.rpc("notificar_rotinas");
+  if (error) throw error;
+}
+
 export type StatusHistorico =
   | "futura"
   | "naoIniciada"

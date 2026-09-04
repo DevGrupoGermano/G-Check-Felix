@@ -11,7 +11,12 @@ import {
 import { dataDoIso, isoDoDia } from "@/lib/utils";
 import { itemRodaNoDia, recorrencias, type Recorrencia } from "@/lib/recorrencia";
 import { useAuth } from "@/lib/auth-store";
-import { HISTORICO_QUERY_KEY, reabrirAutomaticas, rolloverPendente } from "@/lib/historico";
+import {
+  HISTORICO_QUERY_KEY,
+  notificarRotinas,
+  reabrirAutomaticas,
+  rolloverPendente,
+} from "@/lib/historico";
 
 export { itemRodaNoDia, recorrencias, type Recorrencia };
 
@@ -372,6 +377,21 @@ export function GCheckProvider({ children }: { children: React.ReactNode }) {
       window.clearInterval(id);
     };
   }, [session, queryClient]);
+
+  // Notificação por e-mail (rotina concluída/atrasada): o pg_cron roda a cada
+  // 15 min; aqui o client cobre a mesma janela. Sem efeito colateral se a
+  // Resend ainda não foi configurada — notificar_rotinas() só volta (no-op).
+  React.useEffect(() => {
+    if (!session) return;
+    const rodar = () => {
+      notificarRotinas().catch(() => {
+        /* silencioso: o pg_cron cobre o caminho normal */
+      });
+    };
+    rodar();
+    const id = window.setInterval(rodar, 15 * 60 * 1000);
+    return () => window.clearInterval(id);
+  }, [session]);
 
   const toggleItemMutation = useMutation({
     mutationFn: async ({ itemId, next }: { itemId: string; next: ItemStatus }) => {
