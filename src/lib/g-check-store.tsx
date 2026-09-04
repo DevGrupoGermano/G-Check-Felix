@@ -196,6 +196,24 @@ function slugify(texto: string) {
     .replace(/(^-|-$)/g, "");
 }
 
+/**
+ * Ordena os itens do formulário por horário de início antes de gravar
+ * `posicao` — o formulário só permite acrescentar item ao final da lista
+ * (sem reordenar manualmente), então sem isso uma atividade nova entraria
+ * sempre por último, fora do lugar cronológico. Item sem horário vai para o
+ * fim; itens no mesmo horário mantêm a ordem relativa em que foram digitados.
+ */
+function ordenarPorHorario(itens: ItemInput[]): ItemInput[] {
+  return itens
+    .map((it, index) => ({ it, index }))
+    .sort((a, b) => {
+      const ha = a.it.horarioInicio || "99:99";
+      const hb = b.it.horarioInicio || "99:99";
+      return ha === hb ? a.index - b.index : ha < hb ? -1 : 1;
+    })
+    .map(({ it }) => it);
+}
+
 /** Campos de um item no formato do banco, comuns a criação e edição. */
 function camposItemBanco(it: ItemInput) {
   const enquete = it.tipoTarefa === "enquete";
@@ -693,7 +711,7 @@ export function GCheckProvider({ children }: { children: React.ReactNode }) {
       if (checklistError) throw checklistError;
 
       // Ids dos itens seguem "<id-da-checklist>-<posição>" — todo item nasce "pendente".
-      const itensPayload = input.itens.map((it, index) => ({
+      const itensPayload = ordenarPorHorario(input.itens).map((it, index) => ({
         id: `${id}-${index + 1}`,
         checklist_id: id,
         ...camposItemBanco(it),
@@ -739,7 +757,7 @@ export function GCheckProvider({ children }: { children: React.ReactNode }) {
       // ainda existe e não foi usado por outro item nesta mesma edição; caso
       // contrário (item novo, ou id duplicado/inválido) geramos um UUID novo, que
       // sempre nasce "pendente". Isso evita resetar o progresso já feito ao editar.
-      const itensFinal = input.itens.map((it, index) => {
+      const itensFinal = ordenarPorHorario(input.itens).map((it, index) => {
         let id = it.id && statusPorId.has(it.id) && !idsUsados.has(it.id) ? it.id : undefined;
         if (!id) id = crypto.randomUUID();
         idsUsados.add(id);
