@@ -249,6 +249,31 @@ function camposItemBanco(it: ItemInput) {
 
 const QUERY_KEY = ["checklists"] as const;
 
+// Vídeo gravado na hora (câmera) pode passar de 100MB fácil — sem teto o
+// upload de uma rede móvel ruim fica "pendurado" sem erro nem sucesso.
+const TAMANHO_MAX_ANEXO_MB = 100;
+const TIMEOUT_UPLOAD_MS = 120_000;
+
+/** Corre uma promessa contra um prazo — se estourar, rejeita com mensagem
+ *  amigável em vez de deixar o upload pendurado pra sempre na tela. Não
+ *  cancela o upload em si (o storage-js não expõe abort), só desiste de
+ *  esperar por ele. */
+function comTimeout<T>(promessa: Promise<T>, ms: number, mensagem: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(mensagem)), ms);
+    promessa.then(
+      (v) => {
+        clearTimeout(timer);
+        resolve(v);
+      },
+      (e) => {
+        clearTimeout(timer);
+        reject(e);
+      },
+    );
+  });
+}
+
 type ChecklistWithItems = ChecklistRow & { checklist_items: ChecklistItemRow[] };
 
 /**
@@ -644,6 +669,11 @@ export function GCheckProvider({ children }: { children: React.ReactNode }) {
       if (item?.maxAnexos != null && item.anexos.length >= item.maxAnexos) {
         throw new Error(`Este item aceita no máximo ${item.maxAnexos} arquivo(s).`);
       }
+      if (arquivo.size > TAMANHO_MAX_ANEXO_MB * 1024 * 1024) {
+        throw new Error(
+          `Arquivo muito grande (máx. ${TAMANHO_MAX_ANEXO_MB}MB) — grave um vídeo mais curto ou em qualidade menor.`,
+        );
+      }
       const ext =
         arquivo.name
           .split(".")
@@ -653,12 +683,14 @@ export function GCheckProvider({ children }: { children: React.ReactNode }) {
       const caminho = `${checklistId}/${itemId}-${Date.now()}-${Math.random()
         .toString(36)
         .slice(2, 8)}.${ext}`;
-      const { error: uploadError } = await supabase.storage
-        .from(BUCKET_ANEXOS)
-        .upload(caminho, arquivo, {
+      const { error: uploadError } = await comTimeout(
+        supabase.storage.from(BUCKET_ANEXOS).upload(caminho, arquivo, {
           upsert: true,
           ...(arquivo.type ? { contentType: arquivo.type } : {}),
-        });
+        }),
+        TIMEOUT_UPLOAD_MS,
+        "Envio muito lento — verifique sua conexão e tente novamente.",
+      );
       if (uploadError) throw uploadError;
 
       const { data } = supabase.storage.from(BUCKET_ANEXOS).getPublicUrl(caminho);
