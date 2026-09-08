@@ -860,9 +860,23 @@ function AnexosItem({
                 disabled={enviando}
                 onClick={() => inputVideoRef.current?.click()}
               >
-                <Video className="size-3.5" />
+                {enviando ? (
+                  <Loader2 className="size-3.5 animate-spin" />
+                ) : (
+                  <Video className="size-3.5" />
+                )}
                 Vídeo
               </Button>
+              {enviando && (
+                <span
+                  role="status"
+                  aria-live="polite"
+                  className="inline-flex items-center gap-1.5 text-xs font-medium text-info"
+                >
+                  <Loader2 className="size-3.5 animate-spin" />
+                  Enviando, aguarde…
+                </span>
+              )}
             </>
           )}
 
