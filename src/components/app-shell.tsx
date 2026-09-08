@@ -1,7 +1,6 @@
 import * as React from "react";
 import { Link } from "@tanstack/react-router";
 import {
-  Building2,
   History,
   LayoutDashboard,
   ListChecks,
@@ -27,15 +26,14 @@ const navBase: readonly NavItem[] = [
 ];
 
 // Seção só de admin. As rotas também se autoprotegem (ver historico.tsx /
-// funcionarios.tsx / setores.tsx), então esconder aqui é só para não oferecer
-// um link que levaria a uma tela de acesso negado.
+// funcionarios.tsx), então esconder aqui é só para não oferecer um link que
+// levaria a uma tela de acesso negado.
 const navAdmin: readonly NavItem[] = [
   { to: "/historico", label: "Histórico", icon: History, exact: false },
 ];
 
 const navCadastros: readonly NavItem[] = [
   { to: "/funcionarios", label: "Funcionários", icon: Users, exact: false },
-  { to: "/setores", label: "Setores", icon: Building2, exact: false },
 ];
 
 function NavLink({ item, onNavigate }: { item: NavItem; onNavigate?: (() => void) | undefined }) {

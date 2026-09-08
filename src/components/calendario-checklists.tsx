@@ -174,7 +174,7 @@ export function CalendarioChecklists({
                     {visiveis.map((c) => (
                       <span
                         key={c.id}
-                        title={[c.nome, c.turnos.join(" · "), c.horarioInicio, c.setor]
+                        title={[c.nome, c.turnos.join(" · "), c.horarioInicio, c.responsavel]
                           .filter(Boolean)
                           .join(" — ")}
                         className="truncate rounded-md bg-primary/10 px-1.5 py-1 text-xs font-medium text-primary"

@@ -156,7 +156,6 @@ function checklistDeSnapshot(e: ChecklistExecucaoRow, vivo: Checklist | undefine
     return {
       id: `${e.checklist_id}-snap-${idx}`,
       titulo: it.titulo,
-      responsavel: it.responsavel,
       status: it.status === "concluido" ? "concluido" : "pendente",
       tipoTarefa: it.tipo_tarefa ?? "checklist",
       respostaOpcoes: it.resposta_opcoes ?? [],
@@ -176,7 +175,7 @@ function checklistDeSnapshot(e: ChecklistExecucaoRow, vivo: Checklist | undefine
   return {
     id: e.checklist_id,
     nome: e.nome,
-    setor: e.setor,
+    responsavel: vivo?.responsavel ?? (e.itens[0]?.responsavel ?? ""),
     ativo: vivo?.ativo ?? true,
     reabreAutomatico: vivo?.reabreAutomatico ?? false,
     ...(vivo?.reabreIntervaloMin ? { reabreIntervaloMin: vivo.reabreIntervaloMin } : {}),
@@ -215,9 +214,7 @@ export interface ChecklistSearch {
    */
   horarioDe?: string | undefined;
   horarioAte?: string | undefined;
-  /** Nomes de setores para recortar as rotinas (casa com `checklist.setor`). */
-  setores?: string[] | undefined;
-  /** Nomes de responsáveis: mantém as rotinas que têm ao menos um item da pessoa. */
+  /** Nomes de responsáveis: mantém as rotinas atribuídas a essas pessoas. */
   funcionarios?: string[] | undefined;
   /** id da checklist que deve abrir expandida e receber scroll ao entrar na página. */
   checklist?: string | undefined;
@@ -253,7 +250,6 @@ export const Route = createFileRoute("/checklists")({
     const rawTurnos = search["turnos"];
     const rawHorarioDe = search["horarioDe"];
     const rawHorarioAte = search["horarioAte"];
-    const rawSetores = search["setores"];
     const rawFuncionarios = search["funcionarios"];
     const rawChecklist = search["checklist"];
     const rawDia = search["dia"];
@@ -269,10 +265,7 @@ export const Route = createFileRoute("/checklists")({
       typeof v === "string" && /^\d{2}:\d{2}$/.test(v);
     const horarioDe = ehHHMM(rawHorarioDe) ? rawHorarioDe : undefined;
     const horarioAte = ehHHMM(rawHorarioAte) ? rawHorarioAte : undefined;
-    // Setores/funcionários são texto livre (vêm do cadastro): só filtramos por tipo.
-    const setores = Array.isArray(rawSetores)
-      ? rawSetores.filter((s): s is string => typeof s === "string" && s.length > 0)
-      : undefined;
+    // Funcionários é texto livre (vem do cadastro): só filtramos por tipo.
     const funcionarios = Array.isArray(rawFuncionarios)
       ? rawFuncionarios.filter((f): f is string => typeof f === "string" && f.length > 0)
       : undefined;
@@ -290,7 +283,6 @@ export const Route = createFileRoute("/checklists")({
       ...(turnosSearch && turnosSearch.length ? { turnos: turnosSearch } : {}),
       ...(horarioDe ? { horarioDe } : {}),
       ...(horarioAte ? { horarioAte } : {}),
-      ...(setores && setores.length ? { setores } : {}),
       ...(funcionarios && funcionarios.length ? { funcionarios } : {}),
       ...(checklist ? { checklist } : {}),
       ...(dia ? { dia } : {}),
@@ -312,25 +304,22 @@ const turnoOptions: { id: Turno; label: string }[] = turnos.map((t) => ({ id: t,
 
 /**
  * Botão de filtros: abre um popover com as opções agrupadas (Estado / Turno /
- * Setor / Funcionário) onde cada clique já liga/desliga aquele filtro
- * (multi-seleção, sem passo extra de "aplicar"). Setor e Funcionário saem dos
- * próprios dados das rotinas, então a busca no topo ajuda quando a lista cresce.
- * As opções ativas aparecem como badges removíveis ao lado, cada uma com seu X.
+ * Funcionário) onde cada clique já liga/desliga aquele filtro (multi-seleção,
+ * sem passo extra de "aplicar"). Funcionário sai dos próprios dados das
+ * rotinas, então a busca no topo ajuda quando a lista cresce. As opções ativas
+ * aparecem como badges removíveis ao lado, cada uma com seu X.
  */
 function FiltrosChecklist({
   estadosSelecionados,
   turnosSelecionados,
   horarioDe,
   horarioAte,
-  setoresSelecionados,
   funcionariosSelecionados,
   horariosDisponiveis,
-  setoresDisponiveis,
   funcionariosDisponiveis,
   onToggleEstado,
   onToggleTurno,
   onChangeHorario,
-  onToggleSetor,
   onToggleFuncionario,
   onLimpar,
 }: {
@@ -338,16 +327,13 @@ function FiltrosChecklist({
   turnosSelecionados: Turno[];
   horarioDe: string | undefined;
   horarioAte: string | undefined;
-  setoresSelecionados: string[];
   funcionariosSelecionados: string[];
   /** Horários de início presentes nos itens — viram sugestões nos campos De/Até. */
   horariosDisponiveis: string[];
-  setoresDisponiveis: string[];
   funcionariosDisponiveis: string[];
   onToggleEstado: (id: EstadoVista) => void;
   onToggleTurno: (id: Turno) => void;
   onChangeHorario: (patch: { de?: string | undefined; ate?: string | undefined }) => void;
-  onToggleSetor: (id: string) => void;
   onToggleFuncionario: (id: string) => void;
   onLimpar: () => void;
 }) {
@@ -356,7 +342,6 @@ function FiltrosChecklist({
     estadosSelecionados.length +
     turnosSelecionados.length +
     (temHorario ? 1 : 0) +
-    setoresSelecionados.length +
     funcionariosSelecionados.length;
 
   // Os campos "De"/"Até" são digitados localmente e só entram na URL quando o
@@ -424,27 +409,6 @@ function FiltrosChecklist({
                   );
                 })}
               </CommandGroup>
-              {setoresDisponiveis.length > 0 && (
-                <>
-                  <CommandSeparator />
-                  <CommandGroup heading="Setor">
-                    {setoresDisponiveis.map((s) => {
-                      const ativo = setoresSelecionados.includes(s);
-                      return (
-                        <CommandItem
-                          key={s}
-                          value={`setor ${s}`}
-                          onSelect={() => onToggleSetor(s)}
-                          className="justify-between"
-                        >
-                          <span className="truncate">{s}</span>
-                          {ativo && <Check className="size-4 shrink-0 text-primary" />}
-                        </CommandItem>
-                      );
-                    })}
-                  </CommandGroup>
-                </>
-              )}
               {funcionariosDisponiveis.length > 0 && (
                 <>
                   <CommandSeparator />
@@ -557,18 +521,6 @@ function FiltrosChecklist({
           </button>
         </Badge>
       )}
-      {setoresSelecionados.map((s) => (
-        <Badge key={s} variant="secondary" className="gap-1 py-1 pl-2.5 pr-1.5 font-medium">
-          {s}
-          <button
-            onClick={() => onToggleSetor(s)}
-            aria-label={`Remover filtro ${s}`}
-            className="rounded-full p-0.5 hover:bg-foreground/10"
-          >
-            <X className="size-3" />
-          </button>
-        </Badge>
-      ))}
       {funcionariosSelecionados.map((f) => (
         <Badge key={f} variant="secondary" className="gap-1 py-1 pl-2.5 pr-1.5 font-medium">
           {f}
@@ -943,7 +895,11 @@ function ChecklistCard({
             <div className="min-w-0">
               <h2 className="text-base font-semibold tracking-tight">{c.nome}</h2>
               <p className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
-                <span>{c.setor}</span>
+                {c.responsavel && (
+                  <span className="inline-flex items-center gap-1">
+                    <User className="size-3.5" /> {c.responsavel}
+                  </span>
+                )}
                 {(c.turnos.length > 0 || c.horarioInicio) && (
                   <span className="inline-flex items-center gap-1">
                     <Clock className="size-3.5" />{" "}
@@ -1033,12 +989,12 @@ function ChecklistCard({
           <ul className="divide-y divide-border">
             {c.itens.map((i) => {
               const feito = i.status === "concluido";
-              // Admin marca qualquer item; funcionário só o que está atribuído a
-              // ele (comparação por nome, ver ehResponsavel em g-check-store.tsx).
-              // Reforçado no banco pela migration
-              // 20260824140000_restrict_item_status_to_responsavel.sql.
+              // Admin marca qualquer item; funcionário só os itens da rotina de
+              // que é responsável (comparação por nome, ver ehResponsavel em
+              // g-check-store.tsx). Reforçado no banco pela migration
+              // 20260908120000_responsavel_por_rotina.sql.
               const podeMarcar =
-                !bloqueado && !somenteLeitura && (isAdmin || ehResponsavel(i, profile?.nome));
+                !bloqueado && !somenteLeitura && (isAdmin || ehResponsavel(c, profile?.nome));
               // Item que ainda não tem os anexos mínimos: não dá pra concluir (só reabrir).
               const anexosPendentes = i.anexos.length < i.minAnexos && !feito;
               // Enquete sem opção escolhida: idem, trava a conclusão.
@@ -1064,7 +1020,7 @@ function ChecklistCard({
                         : somenteLeitura
                           ? "Somente leitura — abra o dia de hoje para marcar"
                           : !podeMarcar
-                            ? `Item atribuído a ${i.responsavel}`
+                            ? `Rotina atribuída a ${c.responsavel}`
                             : anexosPendentes
                               ? `Anexe os arquivos para concluir ${i.titulo}`
                               : respostaPendente
@@ -1097,9 +1053,6 @@ function ChecklistCard({
                       <p className="mt-0.5 text-xs text-muted-foreground">{i.detalhe}</p>
                     )}
                     <p className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-muted-foreground">
-                      <span className="inline-flex items-center gap-1">
-                        <User className="size-3" /> {i.responsavel}
-                      </span>
                       <span className="inline-flex items-center gap-1">
                         <CalendarDays className="size-3" /> {labelRecorrencia(i)}
                       </span>
@@ -1401,7 +1354,6 @@ function ChecklistsPage() {
     turnos: turnosSearch,
     horarioDe,
     horarioAte,
-    setores: setoresSearch,
     funcionarios: funcionariosSearch,
     checklist: checklistDestaque,
     dia,
@@ -1432,31 +1384,19 @@ function ChecklistsPage() {
 
   const estadosSelecionados = React.useMemo(() => estados ?? [], [estados]);
   const turnosSelecionados = React.useMemo(() => turnosSearch ?? [], [turnosSearch]);
-  const setoresSelecionados = React.useMemo(() => setoresSearch ?? [], [setoresSearch]);
   const funcionariosSelecionados = React.useMemo(
     () => funcionariosSearch ?? [],
     [funcionariosSearch],
   );
 
-  // Opções de Setor / Funcionário saem das próprias rotinas (todas, não só as do
-  // dia): assim o filtro cobre qualquer valor já cadastrado, mesmo fora do
-  // recorte atual. Ordenadas em pt-BR, sem repetição e sem entradas vazias.
-  const setoresDisponiveis = React.useMemo(() => {
-    const nomes = new Set<string>();
-    for (const c of checklists) {
-      const s = c.setor.trim();
-      if (s) nomes.add(s);
-    }
-    return [...nomes].sort((a, b) => a.localeCompare(b, "pt-BR"));
-  }, [checklists]);
-
+  // Opções de Funcionário saem das próprias rotinas (todas, não só as do dia):
+  // assim o filtro cobre qualquer valor já cadastrado, mesmo fora do recorte
+  // atual. Ordenadas em pt-BR, sem repetição e sem entradas vazias.
   const funcionariosDisponiveis = React.useMemo(() => {
     const nomes = new Set<string>();
     for (const c of checklists) {
-      for (const i of c.itens) {
-        const r = i.responsavel.trim();
-        if (r) nomes.add(r);
-      }
+      const r = c.responsavel.trim();
+      if (r) nomes.add(r);
     }
     return [...nomes].sort((a, b) => a.localeCompare(b, "pt-BR"));
   }, [checklists]);
@@ -1512,19 +1452,6 @@ function ChecklistsPage() {
     [navigate],
   );
 
-  const toggleSetor = React.useCallback(
-    (id: string) => {
-      navigate({
-        search: (prev) => {
-          const atuais = prev.setores ?? [];
-          const proximo = atuais.includes(id) ? atuais.filter((s) => s !== id) : [...atuais, id];
-          return { ...prev, setores: proximo.length ? proximo : undefined };
-        },
-      });
-    },
-    [navigate],
-  );
-
   const toggleFuncionario = React.useCallback(
     (id: string) => {
       navigate({
@@ -1546,7 +1473,6 @@ function ChecklistsPage() {
         turnos: undefined,
         horarioDe: undefined,
         horarioAte: undefined,
-        setores: undefined,
         funcionarios: undefined,
       }),
     });
@@ -1592,7 +1518,7 @@ function ChecklistsPage() {
 
   const minhasChecklists = isAdmin
     ? checklists
-    : checklists.filter((c) => c.ativo && c.itens.some((i) => ehResponsavel(i, profile?.nome)));
+    : checklists.filter((c) => c.ativo && ehResponsavel(c, profile?.nome));
 
   if (vista === "calendario") {
     return (
@@ -1658,20 +1584,11 @@ function ChecklistsPage() {
                   .map(checklistPendente)
   ).filter((c) => c.itens.length > 0);
 
-  // Recorte por setor da rotina e por responsável de algum item — vale para
-  // qualquer dia em foco, então roda antes das ramificações de estado abaixo.
-  const passaSetorEFuncionario = (c: Checklist) => {
-    if (setoresSelecionados.length > 0 && !setoresSelecionados.includes(c.setor.trim())) {
-      return false;
-    }
-    if (
-      funcionariosSelecionados.length > 0 &&
-      !c.itens.some((i) => funcionariosSelecionados.includes(i.responsavel.trim()))
-    ) {
-      return false;
-    }
-    return true;
-  };
+  // Recorte por responsável da rotina — vale para qualquer dia em foco, então
+  // roda antes das ramificações de estado abaixo.
+  const passaFuncionario = (c: Checklist) =>
+    funcionariosSelecionados.length === 0 ||
+    funcionariosSelecionados.includes(c.responsavel.trim());
 
   const passaTurno = (c: Checklist) =>
     turnosSelecionados.length === 0 ||
@@ -1702,7 +1619,7 @@ function ChecklistsPage() {
     .filter((c) => {
       if (temFiltroHorario && c.itens.length === 0) return false;
       if (!passaTurno(c)) return false;
-      if (!passaSetorEFuncionario(c)) return false;
+      if (!passaFuncionario(c)) return false;
       if (!ehHoje) {
         return (
           estadosSelecionados.length === 0 ||
@@ -1712,16 +1629,15 @@ function ChecklistsPage() {
       return estadosSelecionados.length === 0 || estadosSelecionados.includes(estadoVista(c));
     });
 
-  // Funcionário não vê a rotina inteira: percorre os itens atribuídos a ele
-  // (nas rotinas que passam pelos mesmos filtros de turno/dia) e monta uma
+  // Funcionário não vê a rotina inteira: percorre as rotinas de que é
+  // responsável (nas que passam pelos mesmos filtros de turno/dia) e monta uma
   // lista plana de tarefas, ordenada pelo que precisa de ação primeiro.
   const tarefasFuncionario: TarefaFuncionario[] = isAdmin
     ? []
     : checklistsDoDia
-        .filter((c) => passaTurno(c) && passaSetorEFuncionario(c))
+        .filter((c) => passaTurno(c) && passaFuncionario(c) && ehResponsavel(c, profile?.nome))
         .flatMap((c) =>
           c.itens
-            .filter((i) => ehResponsavel(i, profile?.nome))
             .filter((i) => {
               if (turnosSelecionados.length === 0) return true;
               const t = i.turno ?? turnoDoHorario(i.horarioInicio);
@@ -1743,7 +1659,6 @@ function ChecklistsPage() {
     turnosSelecionados.length > 0 ||
     !!horarioDe ||
     !!horarioAte ||
-    setoresSelecionados.length > 0 ||
     funcionariosSelecionados.length > 0 ||
     diaSelecionado;
 
@@ -1795,15 +1710,12 @@ function ChecklistsPage() {
               turnosSelecionados={turnosSelecionados}
               horarioDe={horarioDe}
               horarioAte={horarioAte}
-              setoresSelecionados={setoresSelecionados}
               funcionariosSelecionados={funcionariosSelecionados}
               horariosDisponiveis={horariosDisponiveis}
-              setoresDisponiveis={setoresDisponiveis}
               funcionariosDisponiveis={funcionariosDisponiveis}
               onToggleEstado={toggleEstado}
               onToggleTurno={toggleTurno}
               onChangeHorario={mudarHorario}
-              onToggleSetor={toggleSetor}
               onToggleFuncionario={toggleFuncionario}
               onLimpar={limparFiltros}
             />

@@ -6,7 +6,6 @@ import {
   AlertCircle,
   AlertTriangle,
   BarChart3,
-  Building2,
   CalendarCheck,
   CalendarCog,
   CalendarOff,
@@ -63,7 +62,6 @@ import {
   naoIniciada,
   progresso,
   tarefasPorFuncionario,
-  tarefasPorSetor,
   useGCheck,
   type AgregadoTarefas,
   type Checklist,
@@ -143,10 +141,10 @@ function Metric({
   return <div className={base}>{conteudo}</div>;
 }
 
-/** Modos de visualização dos cards de tarefas por funcionário / por setor. */
+/** Modos de visualização do card de tarefas por funcionário. */
 type VistaTarefas = "barras" | "pizza" | "colunas";
 
-/** Paleta cíclica p/ o gráfico de pizza (uma fatia por funcionário/setor). */
+/** Paleta cíclica p/ o gráfico de pizza (uma fatia por funcionário). */
 const PALETA_TAREFAS = [
   "var(--chart-1)",
   "var(--chart-2)",
@@ -168,7 +166,7 @@ const chartConfigStatus = {
 } satisfies ChartConfig;
 
 /**
- * Vista "barras": uma linha por funcionário/setor com barra 100% preenchida,
+ * Vista "barras": uma linha por funcionário com barra 100% preenchida,
  * dividida entre concluídas (verde), atrasadas (vermelho) e pendentes no prazo
  * (âmbar) pela contagem da própria linha. Ordenada por pendências.
  */
@@ -216,7 +214,7 @@ function BarrasTarefas({ dados, rotuloItem }: { dados: AgregadoTarefas[]; rotulo
   );
 }
 
-/** Vista "pizza": distribuição do volume total de tarefas por funcionário/setor. */
+/** Vista "pizza": distribuição do volume total de tarefas por funcionário. */
 function PizzaTarefas({ dados }: { dados: AgregadoTarefas[] }) {
   const data = dados.map((d, i) => ({
     chave: d.chave,
@@ -277,9 +275,9 @@ function ColunasTarefas({ dados }: { dados: AgregadoTarefas[] }) {
 }
 
 /**
- * Card do dashboard com a quebra de tarefas por funcionário / por setor. O
- * cabeçalho traz um seletor com 3 formas de ver os mesmos dados: barras (lista),
- * pizza (distribuição do volume) e colunas (empilhado por status).
+ * Card do dashboard com a quebra de tarefas por funcionário. O cabeçalho traz
+ * um seletor com 3 formas de ver os mesmos dados: barras (lista), pizza
+ * (distribuição do volume) e colunas (empilhado por status).
  */
 function TarefasBreakdown({
   titulo,
@@ -606,14 +604,11 @@ function Dashboard() {
     .map((c) => ({ ...c, itens: c.itens.filter((i) => itemRodaNoDia(i, hoje)) }))
     .filter((c) => c.itens.length > 0);
   const inativas = checklists.length - ativas.length;
-  // Admin vê todas as rotinas de hoje por inteiro. Funcionário vê versões
-  // "recortadas": cada checklist mostra só os itens atribuídos a ele, e a
-  // checklist inteira some se nenhum item dela for dele (evita "cascas vazias").
+  // Admin vê todas as rotinas de hoje por inteiro. Funcionário só vê as
+  // rotinas de que é responsável (a rotina inteira, não item a item).
   const doDia: Checklist[] = isAdmin
     ? rotinasDeHoje
-    : rotinasDeHoje
-        .map((c) => ({ ...c, itens: c.itens.filter((i) => ehResponsavel(i, profile?.nome)) }))
-        .filter((c) => c.itens.length > 0);
+    : rotinasDeHoje.filter((c) => ehResponsavel(c, profile?.nome));
   // Dia pausado (feriado): nada é cobrado hoje — o dashboard calcula como se não
   // houvesse rotina ativa. Ver PausaRotinasHoje / tabela dias_desativados.
   const visiveis: Checklist[] = hojeDesativado ? [] : doDia;
@@ -631,7 +626,7 @@ function Dashboard() {
 
   // Só a taxa de execução ignora rotinas ainda "não iniciadas" (nada feito e
   // antes do horário de início): incluí-las derrubaria o índice antes da hora.
-  // Pendências, tabelas por funcionário/setor e o resto contam todas as rotinas.
+  // Pendências, a tabela por funcionário e o resto contam todas as rotinas.
   const taxaBase = visiveis
     .filter((c) => !naoIniciada(c))
     .reduce(
@@ -653,10 +648,9 @@ function Dashboard() {
     .slice(0, 6);
   const tudoConcluido = visiveis.length > 0 && visiveis.every((c) => estado(c) === "concluido");
 
-  // Distribuição das tarefas (itens) por responsável e por setor — só faz
-  // sentido para o admin, que enxerga todas as checklists ativas.
+  // Distribuição das tarefas (itens) por responsável — só faz sentido para o
+  // admin, que enxerga todas as checklists ativas.
   const porFuncionario = isAdmin && !hojeDesativado ? tarefasPorFuncionario(rotinasDeHoje) : [];
-  const porSetor = isAdmin && !hojeDesativado ? tarefasPorSetor(rotinasDeHoje) : [];
 
   return (
     <AppShell title="Dashboard" subtitle={subtitle}>
@@ -812,7 +806,7 @@ function Dashboard() {
                   >
                     <p className="line-clamp-2 text-sm font-medium">{i.titulo}</p>
                     <p className="mt-1 truncate text-xs text-muted-foreground">
-                      {c.nome} · {i.responsavel}
+                      {c.nome} · {c.responsavel}
                     </p>
                   </Link>
                 </li>
@@ -834,24 +828,14 @@ function Dashboard() {
         </div>
 
         {isAdmin && (
-          <div className="grid gap-6 lg:grid-cols-2">
-            <TarefasBreakdown
-              titulo="Tarefas por funcionário"
-              descricao="Itens de rotina atribuídos a cada pessoa"
-              icon={Users}
-              dados={porFuncionario}
-              rotuloItem="tarefa"
-              vazio="Nenhuma tarefa atribuída nas rotinas ativas."
-            />
-            <TarefasBreakdown
-              titulo="Tarefas por setor"
-              descricao="Itens de rotina agrupados pela área da loja"
-              icon={Building2}
-              dados={porSetor}
-              rotuloItem="tarefa"
-              vazio="Nenhuma rotina ativa com tarefas."
-            />
-          </div>
+          <TarefasBreakdown
+            titulo="Tarefas por funcionário"
+            descricao="Itens de rotina atribuídos a cada pessoa"
+            icon={Users}
+            dados={porFuncionario}
+            rotuloItem="tarefa"
+            vazio="Nenhuma tarefa atribuída nas rotinas ativas."
+          />
         )}
       </div>
     </AppShell>

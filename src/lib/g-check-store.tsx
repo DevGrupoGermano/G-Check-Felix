@@ -87,7 +87,6 @@ export interface ChecklistItem {
   titulo: string;
   detalhe?: string;
   status: ItemStatus;
-  responsavel: string;
   /** 'checklist' = marca feito/não feito; 'enquete' = escolhe uma opção + justifica. */
   tipoTarefa: TipoTarefa;
   /** Opções da enquete (ex.: ["SIM","NÃO"]); vazio quando tipoTarefa = "checklist". */
@@ -118,7 +117,8 @@ export interface ChecklistItem {
 export interface Checklist {
   id: string;
   nome: string;
-  setor: string;
+  /** Funcionário responsável por toda a rotina (por todos os itens dela). */
+  responsavel: string;
   ativo: boolean;
   /** Reabre os itens sozinha ao longo do dia (giro da Segurança etc.). */
   reabreAutomatico: boolean;
@@ -142,7 +142,6 @@ export interface ItemInput {
   id?: string;
   titulo: string;
   detalhe?: string;
-  responsavel: string;
   tipoTarefa: TipoTarefa;
   respostaOpcoes: string[];
   turno: string | null;
@@ -159,7 +158,8 @@ export interface ItemInput {
 
 export interface ChecklistInput {
   nome: string;
-  setor: string;
+  /** Funcionário responsável por toda a rotina (por todos os itens dela). */
+  responsavel: string;
   ativo: boolean;
   /** "HH:MM" ou undefined. */
   tempoLimite?: string;
@@ -225,7 +225,6 @@ function camposItemBanco(it: ItemInput) {
   return {
     titulo: it.titulo,
     detalhe: it.detalhe?.trim() || null,
-    responsavel: it.responsavel,
     tipo_tarefa: it.tipoTarefa,
     resposta_opcoes: enquete ? it.respostaOpcoes : [],
     turno: it.turno ?? turnoDoHorario(it.horarioInicio),
@@ -264,7 +263,6 @@ async function fetchChecklists(): Promise<Checklist[]> {
         id: it.id,
         titulo: it.titulo,
         status: it.status as ItemStatus,
-        responsavel: it.responsavel,
         tipoTarefa: (it.tipo_tarefa ?? "checklist") as TipoTarefa,
         respostaOpcoes: [...(it.resposta_opcoes ?? [])],
         resposta: it.resposta ?? null,
@@ -283,7 +281,7 @@ async function fetchChecklists(): Promise<Checklist[]> {
       return {
         id: row.id,
         nome: row.nome,
-        setor: row.setor,
+        responsavel: row.responsavel,
         ativo: row.ativo,
         reabreAutomatico: row.reabre_automatico ?? false,
         ...(row.reabre_intervalo_min
@@ -740,7 +738,7 @@ export function GCheckProvider({ children }: { children: React.ReactNode }) {
       const { error: checklistError } = await supabase.from("checklists").insert({
         id,
         nome: input.nome,
-        setor: input.setor,
+        responsavel: input.responsavel,
         ativo: input.ativo,
         tempo_limite: input.tempoLimite ?? null,
         reabre_automatico: input.reabreAutomatico,
@@ -820,7 +818,7 @@ export function GCheckProvider({ children }: { children: React.ReactNode }) {
         .from("checklists")
         .update({
           nome: input.nome,
-          setor: input.setor,
+          responsavel: input.responsavel,
           ativo: input.ativo,
           tempo_limite: input.tempoLimite ?? null,
           reabre_automatico: input.reabreAutomatico,
@@ -934,8 +932,8 @@ export function progresso(c: Checklist) {
 
 /**
  * Agregado de tarefas (itens de checklist) por uma chave — nome do responsável
- * ou nome do setor. Alimenta as tabelas do dashboard ("tarefas por funcionário"
- * / "por setor") e os contadores nas páginas de funcionários e setores.
+ * da rotina. Alimenta a tabela do dashboard ("tarefas por funcionário") e o
+ * contador na página de funcionários.
  */
 export interface AgregadoTarefas {
   chave: string;
@@ -987,11 +985,7 @@ function agregaTarefas(
 }
 
 export function tarefasPorFuncionario(checklists: Checklist[], naData?: Date) {
-  return agregaTarefas(checklists, (i) => i.responsavel, naData);
-}
-
-export function tarefasPorSetor(checklists: Checklist[], naData?: Date) {
-  return agregaTarefas(checklists, (_i, c) => c.setor, naData);
+  return agregaTarefas(checklists, (_i, c) => c.responsavel, naData);
 }
 
 /** Acha o agregado de uma chave (ignora caixa/espaços); devolve zerado se não houver. */
@@ -1068,7 +1062,7 @@ export const estadoLabel: Record<ChecklistEstado, string> = {
 /**
  * Rotina ainda "não iniciada": nada foi feito, está no prazo e o horário de
  * início ainda não chegou. Enquanto está nesse ponto, o painel não a cobra —
- * fica fora de pendências, taxa de execução e das quebras por funcionário/setor.
+ * fica fora de pendências, taxa de execução e da quebra por funcionário.
  * A partir do horário (mesmo sem nenhum item feito) ela passa a contar.
  */
 export function naoIniciada(c: Checklist, agora: Date = new Date()): boolean {
@@ -1078,8 +1072,8 @@ export function naoIniciada(c: Checklist, agora: Date = new Date()): boolean {
   return minutosDoDia(agora) < minutosDoDia(c.horarioInicio);
 }
 
-/** Compara o responsável do item com o nome de perfil informado (ignora caixa e espaços). */
-export function ehResponsavel(item: ChecklistItem, nome?: string | null) {
+/** Compara o responsável da rotina com o nome de perfil informado (ignora caixa e espaços). */
+export function ehResponsavel(checklist: Pick<Checklist, "responsavel">, nome?: string | null) {
   if (!nome) return false;
-  return item.responsavel.trim().toLowerCase() === nome.trim().toLowerCase();
+  return checklist.responsavel.trim().toLowerCase() === nome.trim().toLowerCase();
 }

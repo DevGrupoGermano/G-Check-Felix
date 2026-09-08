@@ -115,7 +115,7 @@ function LinhaEntrada({ e }: { e: DiaHistorico["entradas"][number] }) {
       <span className={cn("size-1.5 shrink-0 rounded-full", st.dot)} />
       <span className="font-medium">{e.nome}</span>
       <span className="text-xs text-muted-foreground">
-        {[e.turno, e.horario, e.setor].filter(Boolean).join(" · ")}
+        {[e.turno, e.horario, e.responsavel].filter(Boolean).join(" · ")}
       </span>
       <span className={cn("text-xs font-medium", st.texto)}>
         {st.label}

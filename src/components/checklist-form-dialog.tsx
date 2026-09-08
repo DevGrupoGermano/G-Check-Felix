@@ -46,7 +46,6 @@ import {
   type TipoTarefa,
 } from "@/lib/g-check-store";
 import { fetchProfiles, PROFILES_QUERY_KEY } from "@/lib/profiles";
-import { fetchSetores, SETORES_QUERY_KEY } from "@/lib/setores";
 import { cn } from "@/lib/utils";
 
 /** Divide "SIM / NÃO" ou "SIM, NÃO" numa lista limpa de opções. */
@@ -62,7 +61,6 @@ const itemSchema = z
     itemId: z.string().optional(),
     titulo: z.string().trim().min(1, "Informe o título do item."),
     detalhe: z.string().trim().optional(),
-    responsavel: z.string().trim().min(1, "Informe o responsável."),
     tipoTarefa: z.enum(tiposTarefa),
     respostaOpcoesTexto: z.string().trim(),
     horarioInicio: z.string().trim(),
@@ -114,7 +112,7 @@ const itemSchema = z
 const checklistSchema = z
   .object({
     nome: z.string().trim().min(1, "Informe o nome da checklist."),
-    setor: z.string().trim().min(1, "Informe o setor."),
+    responsavel: z.string().trim().min(1, "Informe o responsável."),
     tempoLimite: z.string().trim(),
     ativo: z.boolean(),
     reabreAutomatico: z.boolean(),
@@ -140,7 +138,6 @@ type ChecklistFormValues = z.infer<typeof checklistSchema>;
 const itemVazio = {
   titulo: "",
   detalhe: "",
-  responsavel: "",
   tipoTarefa: "checklist" as TipoTarefa,
   respostaOpcoesTexto: "SIM / NÃO",
   horarioInicio: "",
@@ -156,7 +153,7 @@ function valoresPadrao(checklist?: Checklist): ChecklistFormValues {
   if (!checklist) {
     return {
       nome: "",
-      setor: "",
+      responsavel: "",
       tempoLimite: "",
       ativo: true,
       reabreAutomatico: false,
@@ -166,7 +163,7 @@ function valoresPadrao(checklist?: Checklist): ChecklistFormValues {
   }
   return {
     nome: checklist.nome,
-    setor: checklist.setor,
+    responsavel: checklist.responsavel,
     tempoLimite: checklist.tempoLimite ?? "",
     ativo: checklist.ativo,
     reabreAutomatico: checklist.reabreAutomatico,
@@ -175,7 +172,6 @@ function valoresPadrao(checklist?: Checklist): ChecklistFormValues {
       itemId: i.id,
       titulo: i.titulo,
       detalhe: i.detalhe ?? "",
-      responsavel: i.responsavel,
       tipoTarefa: i.tipoTarefa,
       respostaOpcoesTexto: i.respostaOpcoes.join(" / ") || "SIM / NÃO",
       horarioInicio: i.horarioInicio ?? "",
@@ -222,13 +218,6 @@ function ChecklistFormDialog({ checklist }: { checklist?: Checklist }) {
   });
   const nomesFuncionarios = Array.from(new Set(funcionarios.map((f) => f.nome)));
 
-  const { data: setores = [] } = useQuery({
-    queryKey: SETORES_QUERY_KEY,
-    queryFn: fetchSetores,
-    enabled: open,
-  });
-  const nomesSetores = Array.from(new Set(setores.map((s) => s.nome)));
-
   function onOpenChange(next: boolean) {
     setOpen(next);
     form.reset(valoresPadrao(checklist));
@@ -245,7 +234,6 @@ function ChecklistFormDialog({ checklist }: { checklist?: Checklist }) {
       return {
         ...(i.itemId ? { id: i.itemId } : {}),
         titulo: i.titulo,
-        responsavel: i.responsavel,
         tipoTarefa: i.tipoTarefa,
         respostaOpcoes: enquete ? parseOpcoes(i.respostaOpcoesTexto) : [],
         turno: turnoDoHorario(i.horarioInicio || null),
@@ -262,7 +250,7 @@ function ChecklistFormDialog({ checklist }: { checklist?: Checklist }) {
 
     const dados = {
       nome: values.nome,
-      setor: values.setor,
+      responsavel: values.responsavel,
       ativo: values.ativo,
       reabreAutomatico: values.reabreAutomatico,
       ...(values.reabreAutomatico ? { reabreIntervaloMin: values.reabreIntervaloMin } : {}),
@@ -319,28 +307,29 @@ function ChecklistFormDialog({ checklist }: { checklist?: Checklist }) {
               />
               <FormField
                 control={form.control}
-                name="setor"
+                name="responsavel"
                 render={({ field }) => {
-                  // Só dá pra escolher um setor cadastrado; se a checklist já
-                  // tinha um setor que foi removido depois, ele entra na lista
-                  // como opção extra para não sumir ao editar.
+                  // Um único funcionário responsável por toda a rotina — não
+                  // por item. Se o responsável atual não estiver mais na lista
+                  // de funcionários (removido depois), entra como opção extra
+                  // para não sumir ao editar.
                   const opcoes =
-                    field.value && !nomesSetores.includes(field.value)
-                      ? [field.value, ...nomesSetores]
-                      : nomesSetores;
+                    field.value && !nomesFuncionarios.includes(field.value)
+                      ? [field.value, ...nomesFuncionarios]
+                      : nomesFuncionarios;
                   return (
                     <FormItem>
-                      <FormLabel>Setor</FormLabel>
+                      <FormLabel>Responsável</FormLabel>
                       <Select value={field.value} onValueChange={field.onChange}>
                         <FormControl>
                           <SelectTrigger>
-                            <SelectValue placeholder="Selecione um setor" />
+                            <SelectValue placeholder="Selecione um funcionário" />
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
                           {opcoes.length === 0 && (
                             <p className="px-2 py-1.5 text-sm text-muted-foreground">
-                              Nenhum setor cadastrado
+                              Nenhum funcionário cadastrado
                             </p>
                           )}
                           {opcoes.map((nome) => (
@@ -495,41 +484,6 @@ function ChecklistFormDialog({ checklist }: { checklist?: Checklist }) {
                           <FormMessage />
                         </FormItem>
                       )}
-                    />
-                    <FormField
-                      control={form.control}
-                      name={`itens.${index}.responsavel`}
-                      render={({ field }) => {
-                        const opcoes =
-                          field.value && !nomesFuncionarios.includes(field.value)
-                            ? [field.value, ...nomesFuncionarios]
-                            : nomesFuncionarios;
-                        return (
-                          <FormItem>
-                            <FormLabel>Responsável</FormLabel>
-                            <Select value={field.value} onValueChange={field.onChange}>
-                              <FormControl>
-                                <SelectTrigger>
-                                  <SelectValue placeholder="Selecione um funcionário" />
-                                </SelectTrigger>
-                              </FormControl>
-                              <SelectContent>
-                                {opcoes.length === 0 && (
-                                  <p className="px-2 py-1.5 text-sm text-muted-foreground">
-                                    Nenhum funcionário cadastrado
-                                  </p>
-                                )}
-                                {opcoes.map((nome) => (
-                                  <SelectItem key={nome} value={nome}>
-                                    {nome}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                            <FormMessage />
-                          </FormItem>
-                        );
-                      }}
                     />
                     <FormField
                       control={form.control}

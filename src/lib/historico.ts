@@ -77,7 +77,7 @@ export type StatusHistorico =
 export interface EntradaHistorico {
   checklistId: string;
   nome: string;
-  setor: string;
+  responsavel: string;
   turno: string;
   /** "HH:MM". */
   horario: string;
@@ -145,7 +145,7 @@ export function montarHistorico(opts: {
         .map(({ e, agenda }) => ({
           checklistId: e.checklist_id,
           nome: e.nome,
-          setor: e.setor,
+          responsavel: e.itens[0]?.responsavel ?? "",
           turno: agenda.turno,
           horario: agenda.horario,
           total: e.total_itens,
@@ -185,7 +185,7 @@ export function montarHistorico(opts: {
           return {
             checklistId: c.id,
             nome: c.nome,
-            setor: c.setor,
+            responsavel: c.responsavel,
             turno: c.turnos.join(" · "),
             horario: c.horarioInicio ?? "",
             total,

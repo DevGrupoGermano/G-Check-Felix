@@ -27,7 +27,8 @@ export interface Anexo {
 export interface ChecklistRow {
   id: string;
   nome: string;
-  setor: string;
+  /** Funcionário responsável por toda a rotina (todos os itens dela). */
+  responsavel: string;
   ativo: boolean;
   /** "HH:MM:SS" ou null — horário limite para concluir a rotina. */
   tempo_limite: string | null;
@@ -50,7 +51,6 @@ export interface ChecklistItemRow {
   checklist_id: string;
   titulo: string;
   detalhe: string | null;
-  responsavel: string;
   status: string;
   posicao: number;
   /** 'checklist' = marca feito/não feito; 'enquete' = escolhe uma opção. */
@@ -80,12 +80,6 @@ export interface ChecklistItemRow {
   inicio: string | null;
 }
 
-export interface SetorRow {
-  id: string;
-  nome: string;
-  descricao: string | null;
-}
-
 export interface DiaDesativadoRow {
   /** ISO "yyyy-MM-dd" (tipo date do Postgres). */
   data: string;
@@ -100,7 +94,6 @@ export interface ChecklistExecucaoRow {
   /** ISO "yyyy-MM-dd". */
   data: string;
   nome: string;
-  setor: string;
   /** Sempre null desde 20260905 — turno/horário passaram para os itens. */
   turno: string | null;
   horario: string | null;
