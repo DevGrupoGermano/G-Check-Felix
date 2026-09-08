@@ -1,6 +1,7 @@
 import * as React from "react";
 import type { Session } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
+import { sanitizarPermissoes, type Permissao } from "@/lib/permissoes";
 
 export type UserRole = "admin" | "funcionario";
 
@@ -9,6 +10,7 @@ export interface Profile {
   nome: string;
   email: string;
   role: UserRole;
+  permissoes: Permissao[];
 }
 
 interface AuthCtx {
@@ -16,6 +18,8 @@ interface AuthCtx {
   profile: Profile | null;
   isLoading: boolean;
   isAdmin: boolean;
+  /** Admin tem tudo; funcionário só o que estiver em profile.permissoes. */
+  temAcesso: (chave: Permissao) => boolean;
   signIn: (email: string, senha: string) => Promise<{ error?: string }>;
   signOut: () => Promise<void>;
 }
@@ -66,12 +70,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     supabase
       .from("profiles")
-      .select("id, nome, email, role")
+      .select("id, nome, email, role, permissoes")
       .eq("id", session.user.id)
       .single()
       .then(({ data, error }) => {
         if (!ativo) return;
-        setProfile(error ? null : (data as Profile));
+        setProfile(
+          error || !data
+            ? null
+            : ({
+                ...(data as Omit<Profile, "permissoes">),
+                permissoes: sanitizarPermissoes((data as { permissoes?: string[] }).permissoes),
+              } satisfies Profile),
+        );
         setIsLoading(false);
       });
 
@@ -89,6 +100,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     await supabase.auth.signOut();
   }, []);
 
+  const temAcesso = React.useCallback(
+    (chave: Permissao) => profile?.role === "admin" || (profile?.permissoes ?? []).includes(chave),
+    [profile],
+  );
+
   const value = React.useMemo<AuthCtx>(
     () => ({
       session,
@@ -98,10 +114,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       // de verdade é imposta pelas policies de RLS no Supabase (o client nunca
       // deve ser a única barreira para dados sensíveis).
       isAdmin: profile?.role === "admin",
+      temAcesso,
       signIn,
       signOut,
     }),
-    [session, profile, isLoading, signIn, signOut],
+    [session, profile, isLoading, temAcesso, signIn, signOut],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

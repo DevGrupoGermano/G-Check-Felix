@@ -9,10 +9,7 @@ import { Input } from "@/components/ui/input";
 import { cn, celulasDoMes, dataDoIso, isoDoDia } from "@/lib/utils";
 import { useAuth } from "@/lib/auth-store";
 import { useGCheck } from "@/lib/g-check-store";
-import {
-  DIAS_DESATIVADOS_QUERY_KEY,
-  fetchDiasDesativados,
-} from "@/lib/dias-desativados";
+import { DIAS_DESATIVADOS_QUERY_KEY, fetchDiasDesativados } from "@/lib/dias-desativados";
 import {
   fetchExecucoes,
   HISTORICO_QUERY_KEY,
@@ -32,7 +29,8 @@ interface HistoricoSearch {
 export const Route = createFileRoute("/historico")({
   head: () => ({ meta: [{ title: "Histórico de rotinas — G-check" }] }),
   validateSearch: (search: Record<string, unknown>): HistoricoSearch => {
-    const de = typeof search["de"] === "string" && ISO_RE.test(search["de"]) ? search["de"] : undefined;
+    const de =
+      typeof search["de"] === "string" && ISO_RE.test(search["de"]) ? search["de"] : undefined;
     const ate =
       typeof search["ate"] === "string" && ISO_RE.test(search["ate"]) ? search["ate"] : undefined;
     const vista = search["vista"] === "calendario" ? "calendario" : undefined;
@@ -45,41 +43,39 @@ const fmtDiaSemana = new Intl.DateTimeFormat("pt-BR", { weekday: "short" });
 const fmtMesAno = new Intl.DateTimeFormat("pt-BR", { month: "long", year: "numeric" });
 const CABECALHO = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
 
-const ESTILO: Record<
-  StatusHistorico,
-  { label: string; dot: string; texto: string; pill: string }
-> = {
-  futura: {
-    label: "Agendada",
-    dot: "bg-muted-foreground/40",
-    texto: "text-muted-foreground",
-    pill: "bg-muted text-muted-foreground",
-  },
-  naoIniciada: {
-    label: "Não iniciada",
-    dot: "bg-muted-foreground/40",
-    texto: "text-muted-foreground",
-    pill: "bg-muted text-muted-foreground",
-  },
-  hoje: {
-    label: "Pendente",
-    dot: "bg-chart-4",
-    texto: "text-chart-4",
-    pill: "bg-chart-4/20 text-chart-4",
-  },
-  incompleta: {
-    label: "Incompleta",
-    dot: "bg-destructive",
-    texto: "text-destructive",
-    pill: "bg-destructive/15 text-destructive",
-  },
-  completa: {
-    label: "Concluída",
-    dot: "bg-success",
-    texto: "text-success",
-    pill: "bg-success/15 text-success",
-  },
-};
+const ESTILO: Record<StatusHistorico, { label: string; dot: string; texto: string; pill: string }> =
+  {
+    futura: {
+      label: "Agendada",
+      dot: "bg-muted-foreground/40",
+      texto: "text-muted-foreground",
+      pill: "bg-muted text-muted-foreground",
+    },
+    naoIniciada: {
+      label: "Não iniciada",
+      dot: "bg-muted-foreground/40",
+      texto: "text-muted-foreground",
+      pill: "bg-muted text-muted-foreground",
+    },
+    hoje: {
+      label: "Pendente",
+      dot: "bg-chart-4",
+      texto: "text-chart-4",
+      pill: "bg-chart-4/20 text-chart-4",
+    },
+    incompleta: {
+      label: "Incompleta",
+      dot: "bg-destructive",
+      texto: "text-destructive",
+      pill: "bg-destructive/15 text-destructive",
+    },
+    completa: {
+      label: "Concluída",
+      dot: "bg-success",
+      texto: "text-success",
+      pill: "bg-success/15 text-success",
+    },
+  };
 
 function inicioDoMes(d: Date) {
   return new Date(d.getFullYear(), d.getMonth(), 1);
@@ -300,7 +296,8 @@ function VistaCalendario({
 }
 
 function HistoricoPage() {
-  const { session, isAdmin, isLoading: authLoading } = useAuth();
+  const { session, temAcesso, isLoading: authLoading } = useAuth();
+  const podeVerHistorico = temAcesso("ver_historico");
   const { checklists, isLoading: carregandoChecklists } = useGCheck();
   const search = Route.useSearch();
   const navigate = Route.useNavigate();
@@ -323,13 +320,13 @@ function HistoricoPage() {
   const execucoesQuery = useQuery({
     queryKey: [...HISTORICO_QUERY_KEY, rangeDeISO, rangeAteISO],
     queryFn: () => fetchExecucoes(rangeDeISO, rangeAteISO),
-    enabled: !!session && isAdmin,
+    enabled: !!session && podeVerHistorico,
   });
 
   const diasDesativadosQuery = useQuery({
     queryKey: DIAS_DESATIVADOS_QUERY_KEY,
     queryFn: fetchDiasDesativados,
-    enabled: !!session && isAdmin,
+    enabled: !!session && podeVerHistorico,
   });
 
   const dias = React.useMemo(
@@ -368,9 +365,10 @@ function HistoricoPage() {
 
   if (authLoading) return null;
 
-  // Histórico é só para admin. A tabela checklist_execucoes também tem RLS
-  // restringindo a leitura, então isto aqui é a barreira de UI.
-  if (!isAdmin) {
+  // Histórico exige a permissão "ver_historico" (admin sempre tem). A tabela
+  // checklist_execucoes também tem RLS restringindo a leitura, então isto
+  // aqui é só a barreira de UI.
+  if (!podeVerHistorico) {
     return (
       <AppShell title="Histórico">
         <p className="rounded-2xl border border-dashed border-border p-8 text-center text-sm text-muted-foreground">

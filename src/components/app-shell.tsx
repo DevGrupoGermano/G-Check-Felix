@@ -1,15 +1,6 @@
 import * as React from "react";
 import { Link } from "@tanstack/react-router";
-import {
-  History,
-  LayoutDashboard,
-  ListChecks,
-  LogOut,
-  Menu,
-  Store,
-  Users,
-  X,
-} from "lucide-react";
+import { History, LayoutDashboard, ListChecks, LogOut, Menu, Store, Users, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth-store";
 
@@ -52,7 +43,9 @@ function NavLink({ item, onNavigate }: { item: NavItem; onNavigate?: (() => void
 }
 
 function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
-  const { isAdmin } = useAuth();
+  const { temAcesso } = useAuth();
+  const podeHistorico = temAcesso("ver_historico");
+  const podeFuncionarios = temAcesso("cadastrar_funcionarios");
 
   return (
     <nav className="flex flex-col gap-1">
@@ -60,11 +53,11 @@ function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
         <NavLink key={item.to} item={item} onNavigate={onNavigate} />
       ))}
 
-      {isAdmin && (
+      {podeHistorico &&
+        navAdmin.map((item) => <NavLink key={item.to} item={item} onNavigate={onNavigate} />)}
+
+      {podeFuncionarios && (
         <>
-          {navAdmin.map((item) => (
-            <NavLink key={item.to} item={item} onNavigate={onNavigate} />
-          ))}
           <p className="px-3 pb-1 pt-4 text-xs font-semibold uppercase tracking-wider text-sidebar-foreground/50">
             Rotina de cadastros
           </p>

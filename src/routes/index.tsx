@@ -68,6 +68,15 @@ import {
   type Checklist,
 } from "@/lib/g-check-store";
 
+/**
+ * Só tem efeito pra quem enxerga todas as rotinas (admin/'consultar_checklists_outros'/
+ * 'marcar_checklists_outros'): "minhas" troca o resumo do dia inteiro pelo
+ * recorte das próprias tarefas — mesma aba que existe em /checklists.
+ */
+interface DashboardSearch {
+  secao?: "minhas" | undefined;
+}
+
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
@@ -84,6 +93,10 @@ export const Route = createFileRoute("/")({
       },
     ],
   }),
+  validateSearch: (search: Record<string, unknown>): DashboardSearch => {
+    const secao = search["secao"] === "minhas" ? "minhas" : undefined;
+    return { ...(secao ? { secao } : {}) };
+  },
   component: Dashboard,
 });
 
@@ -227,10 +240,7 @@ function PizzaTarefas({ dados }: { dados: AgregadoTarefas[] }) {
   );
 
   return (
-    <ChartContainer
-      config={config}
-      className="mx-auto mt-4 aspect-square w-full max-w-[260px]"
-    >
+    <ChartContainer config={config} className="mx-auto mt-4 aspect-square w-full max-w-[260px]">
       <PieChart>
         <ChartTooltip content={<ChartTooltipContent nameKey="chave" hideLabel />} />
         <Pie data={data} dataKey="total" nameKey="chave" innerRadius={55} strokeWidth={2}>
@@ -419,8 +429,8 @@ function PersonalizarRotinas() {
           <div className="border-b border-border px-3 py-2.5">
             <p className="text-sm font-medium">Programar dias sem expediente</p>
             <p className="mt-0.5 text-xs text-muted-foreground">
-              Escolha uma data para desativar as rotinas. Dias já desativados aparecem
-              destacados — selecione de novo para reativar.
+              Escolha uma data para desativar as rotinas. Dias já desativados aparecem destacados —
+              selecione de novo para reativar.
             </p>
           </div>
           <Calendar
@@ -511,18 +521,13 @@ function PausaRotinasHoje({ hojeISO, desativado }: { hojeISO: string; desativado
           <div>
             <p className="text-sm font-semibold">Rotinas de hoje desativadas</p>
             <p className="text-xs text-muted-foreground">
-              As pendências do dia não estão sendo cobradas. Reative quando o expediente
-              voltar ao normal.
+              As pendências do dia não estão sendo cobradas. Reative quando o expediente voltar ao
+              normal.
             </p>
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <Button
-            size="sm"
-            variant="outline"
-            disabled={enviando}
-            onClick={() => alternar(true)}
-          >
+          <Button size="sm" variant="outline" disabled={enviando} onClick={() => alternar(true)}>
             {enviando ? "Reativando…" : "Reativar rotinas de hoje"}
           </Button>
           <PersonalizarRotinas />
@@ -555,8 +560,8 @@ function PausaRotinasHoje({ hojeISO, desativado }: { hojeISO: string; desativado
             <AlertDialogHeader>
               <AlertDialogTitle>Deseja realmente desativar as rotinas de hoje?</AlertDialogTitle>
               <AlertDialogDescription>
-                As rotinas de hoje deixam de ser cobradas no painel enquanto estiverem
-                desativadas. Nenhuma checklist é apagada — você pode reativar a qualquer momento.
+                As rotinas de hoje deixam de ser cobradas no painel enquanto estiverem desativadas.
+                Nenhuma checklist é apagada — você pode reativar a qualquer momento.
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
@@ -573,12 +578,32 @@ function PausaRotinasHoje({ hojeISO, desativado }: { hojeISO: string; desativado
 
 function Dashboard() {
   const { checklists, isLoading, isError } = useGCheck();
-  const { isAdmin, profile } = useAuth();
+  const { isAdmin, temAcesso, profile } = useAuth();
   const { hojeISO, hojeDesativado } = useHojeDesativado();
+  const { secao } = Route.useSearch();
+  const navigate = Route.useNavigate();
 
-  const subtitle = isAdmin
-    ? "Resumo do dia — Loja Centro"
-    : `Tarefas atribuídas a ${profile?.nome ?? "você"}`;
+  // "Ver todas as rotinas" (não só as próprias) vale para admin e para quem
+  // tem a permissão de consultar OU de marcar as checklists dos demais (pra
+  // marcar item alheio dá pra ver a rotina inteira, não só a lista das suas).
+  const podeVerTodas =
+    isAdmin || temAcesso("consultar_checklists_outros") || temAcesso("marcar_checklists_outros");
+  const podePausar = temAcesso("pausar_dias");
+  // "Minhas" só existe pra quem também enxerga o resumo completo — troca o
+  // dashboard pelo mesmo recorte que um funcionário comum vê (só as próprias
+  // tarefas). Mesma aba de /checklists.
+  const verMinhas = podeVerTodas && secao === "minhas";
+  const selecionarSecao = React.useCallback(
+    (proxima: "minhas" | undefined) => {
+      navigate({ search: (prev) => ({ ...prev, secao: proxima }) });
+    },
+    [navigate],
+  );
+
+  const subtitle =
+    podeVerTodas && !verMinhas
+      ? "Resumo do dia — Loja Centro"
+      : `Tarefas atribuídas a ${profile?.nome ?? "você"}`;
 
   if (isLoading) {
     return (
@@ -609,11 +634,14 @@ function Dashboard() {
     }))
     .filter((c) => c.itens.length > 0);
   const inativas = checklists.length - ativas.length;
-  // Admin vê todas as rotinas de hoje por inteiro. Funcionário só vê as
-  // rotinas de que é responsável (a rotina inteira, não item a item).
-  const doDia: Checklist[] = isAdmin
-    ? rotinasDeHoje
-    : rotinasDeHoje.filter((c) => ehResponsavel(c, profile?.nome));
+  // Admin (e quem pode consultar as checklists dos demais) vê todas as rotinas
+  // de hoje por inteiro — a não ser que tenha escolhido a aba "Minhas".
+  // Funcionário comum (ou quem está em "Minhas") só vê as rotinas de que é
+  // responsável (a rotina inteira, não item a item).
+  const doDia: Checklist[] =
+    podeVerTodas && !verMinhas
+      ? rotinasDeHoje
+      : rotinasDeHoje.filter((c) => ehResponsavel(c, profile?.nome));
   // Dia pausado (feriado): nada é cobrado hoje — o dashboard calcula como se não
   // houvesse rotina ativa. Ver PausaRotinasHoje / tabela dias_desativados.
   const visiveis: Checklist[] = hojeDesativado ? [] : doDia;
@@ -653,14 +681,15 @@ function Dashboard() {
     .slice(0, 6);
   const tudoConcluido = visiveis.length > 0 && visiveis.every((c) => estado(c) === "concluido");
 
-  // Distribuição das tarefas (itens) por responsável — só faz sentido para o
-  // admin, que enxerga todas as checklists ativas.
-  const porFuncionario = isAdmin && !hojeDesativado ? tarefasPorFuncionario(rotinasDeHoje) : [];
+  // Distribuição das tarefas (itens) por responsável — só faz sentido em
+  // "Todas", que enxerga todas as checklists ativas.
+  const porFuncionario =
+    podeVerTodas && !verMinhas && !hojeDesativado ? tarefasPorFuncionario(rotinasDeHoje) : [];
 
   return (
     <AppShell title="Dashboard" subtitle={subtitle}>
       <div className="mx-auto max-w-5xl space-y-6">
-        {isAdmin ? (
+        {podePausar ? (
           <PausaRotinasHoje hojeISO={hojeISO} desativado={hojeDesativado} />
         ) : (
           hojeDesativado && (
@@ -674,6 +703,23 @@ function Dashboard() {
               </p>
             </section>
           )
+        )}
+
+        {podeVerTodas && (
+          <ToggleGroup
+            type="single"
+            size="sm"
+            variant="outline"
+            value={verMinhas ? "minhas" : "todas"}
+            onValueChange={(v) => v && selecionarSecao(v === "minhas" ? "minhas" : undefined)}
+          >
+            <ToggleGroupItem value="todas" className="gap-1.5 px-3">
+              <Users className="size-4" /> Todas as rotinas
+            </ToggleGroupItem>
+            <ToggleGroupItem value="minhas" className="gap-1.5 px-3">
+              <ListChecks className="size-4" /> Minhas tarefas
+            </ToggleGroupItem>
+          </ToggleGroup>
         )}
 
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
@@ -718,11 +764,11 @@ function Dashboard() {
             label="Rotinas de hoje"
             value={String(visiveis.length)}
             hint={
-              isAdmin && ativas.length - rotinasDeHoje.length > 0
+              podeVerTodas && !verMinhas && ativas.length - rotinasDeHoje.length > 0
                 ? `${ativas.length - rotinasDeHoje.length} não programada${
                     ativas.length - rotinasDeHoje.length > 1 ? "s" : ""
                   } para hoje`
-                : isAdmin && inativas > 0
+                : podeVerTodas && !verMinhas && inativas > 0
                   ? `${inativas} rotina${inativas > 1 ? "s" : ""} inativa${inativas > 1 ? "s" : ""}`
                   : "turnos manhã, tarde e noite"
             }
@@ -784,7 +830,7 @@ function Dashboard() {
                 <li className="rounded-xl bg-muted/60 p-4 text-sm text-muted-foreground">
                   {hojeDesativado
                     ? "Rotinas de hoje pausadas — nenhuma cobrança de pendências."
-                    : isAdmin
+                    : podeVerTodas && !verMinhas
                       ? inativas > 0
                         ? "Nenhuma rotina ativa no momento."
                         : "Nenhuma rotina cadastrada."
@@ -832,7 +878,7 @@ function Dashboard() {
           </section>
         </div>
 
-        {isAdmin && (
+        {podeVerTodas && !verMinhas && (
           <TarefasBreakdown
             titulo="Tarefas por funcionário"
             descricao="Itens de rotina atribuídos a cada pessoa"

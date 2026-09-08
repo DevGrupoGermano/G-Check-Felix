@@ -17,6 +17,7 @@ import {
   RotateCcw,
   Trash2,
   User,
+  Users,
   X,
 } from "lucide-react";
 import { AppShell } from "@/components/app-shell";
@@ -48,6 +49,7 @@ import {
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Progress } from "@/components/ui/progress";
 import { Textarea } from "@/components/ui/textarea";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { cn, dataDoIso, isoDoDia } from "@/lib/utils";
 import { useAuth } from "@/lib/auth-store";
 import type { ChecklistExecucaoRow } from "@/lib/supabase";
@@ -226,6 +228,13 @@ export interface ChecklistSearch {
   dia?: string | undefined;
   /** "calendario" troca o conteúdo do <main> pela tela de calendário (header/sidebar seguem). */
   vista?: "calendario" | undefined;
+  /**
+   * Só tem efeito pra quem enxerga todas as rotinas (admin/'consultar_checklists_outros'/
+   * 'marcar_checklists_outros'): "minhas" troca a lista completa pelo mesmo
+   * formato enxuto do funcionário comum (rotina já aberta, só as atividades
+   * de que é responsável).
+   */
+  secao?: "minhas" | undefined;
 }
 
 export const Route = createFileRoute("/checklists")({
@@ -253,6 +262,7 @@ export const Route = createFileRoute("/checklists")({
     const rawChecklist = search["checklist"];
     const rawDia = search["dia"];
     const rawVista = search["vista"];
+    const rawSecao = search["secao"];
 
     const estados = Array.isArray(rawEstados)
       ? rawEstados.filter((e): e is EstadoVista => ESTADOS_VALIDOS.includes(e as EstadoVista))
@@ -275,6 +285,7 @@ export const Route = createFileRoute("/checklists")({
           ? rawDia
           : undefined;
     const vista = rawVista === "calendario" ? "calendario" : undefined;
+    const secao = rawSecao === "minhas" ? "minhas" : undefined;
 
     return {
       ...(estados && estados.length ? { estados } : {}),
@@ -285,6 +296,7 @@ export const Route = createFileRoute("/checklists")({
       ...(checklist ? { checklist } : {}),
       ...(dia ? { dia } : {}),
       ...(vista ? { vista } : {}),
+      ...(secao ? { secao } : {}),
     };
   },
   component: ChecklistsPage,
@@ -870,7 +882,18 @@ function ChecklistCard({
   dataFoco?: Date | undefined;
 }) {
   const { toggleItem, concluirTodos, reabrir, removerDiaPausado } = useGCheck();
-  const { isAdmin, profile } = useAuth();
+  const { isAdmin, temAcesso, profile } = useAuth();
+  // Editar/excluir a rotina e mexer na folga do dia exige 'criar_checklist'
+  // (mesmo atalho que o admin tem no banco — ver trigger
+  // checklist_items_restrict_funcionario_update).
+  const podeGerir = isAdmin || temAcesso("criar_checklist");
+  // Marcar item de rotina de que não é responsável: quem gerencia a checklist
+  // já pode; 'marcar_checklists_outros' libera só a marcação, sem dar acesso
+  // a criar/editar/excluir a estrutura da checklist.
+  const podeMarcarOutros = podeGerir || temAcesso("marcar_checklists_outros");
+  // Reabrir um item já concluído é uma permissão à parte (reabrir_rotina) —
+  // quem só administra a rotina (podeGerir) já passa direto na trigger.
+  const podeReabrirItem = podeGerir || temAcesso("reabrir_rotina");
   const [aberto, setAberto] = React.useState(destacar);
   const sectionRef = React.useRef<HTMLElement>(null);
   const p = progresso(c);
@@ -994,7 +1017,7 @@ function ChecklistCard({
               <CalendarOff className="size-3.5 shrink-0" />
               Rotina de folga neste dia — as atividades continuam cadastradas (nada foi apagado), só
               não contam como pendência nem podem ser marcadas hoje.
-              {isAdmin && " Use o botão de reabrir ao lado para remover a folga deste dia."}
+              {podeGerir && " Use o botão de reabrir ao lado para remover a folga deste dia."}
             </p>
           ) : (
             <div className="space-y-2">
@@ -1008,7 +1031,7 @@ function ChecklistCard({
             </div>
           )}
         </button>
-        {isAdmin && (
+        {podeGerir && (
           <div className="flex shrink-0 items-center gap-0.5">
             {pausada && (
               <Button
@@ -1034,12 +1057,18 @@ function ChecklistCard({
           <ul className="divide-y divide-border">
             {c.itens.map((i) => {
               const feito = i.status === "concluido";
-              // Admin marca qualquer item; funcionário só os itens da rotina de
-              // que é responsável (comparação por nome, ver ehResponsavel em
-              // g-check-store.tsx). Reforçado no banco pela migration
-              // 20260908120000_responsavel_por_rotina.sql.
+              // Quem gerencia a rotina ou tem 'marcar_checklists_outros' marca
+              // qualquer item; funcionário comum só os da rotina de que é
+              // responsável (por nome, ver ehResponsavel em g-check-store.tsx).
+              // Reabrir um item concluído exige também 'reabrir_rotina'.
+              // Reforçado no banco pelas migrations
+              // 20260908120000_responsavel_por_rotina.sql e
+              // 20260908160000_cargos_permissoes.sql.
               const podeMarcar =
-                !bloqueado && !somenteLeitura && (isAdmin || ehResponsavel(c, profile?.nome));
+                !bloqueado &&
+                !somenteLeitura &&
+                (podeMarcarOutros || ehResponsavel(c, profile?.nome)) &&
+                (feito ? podeReabrirItem : true);
               // Item que ainda não tem os anexos mínimos: não dá pra concluir (só reabrir).
               const anexosPendentes = i.anexos.length < i.minAnexos && !feito;
               // Enquete sem opção escolhida: idem, trava a conclusão.
@@ -1142,7 +1171,7 @@ function ChecklistCard({
               );
             })}
           </ul>
-          {isAdmin && !somenteLeitura && (
+          {podeMarcarOutros && !somenteLeitura && (
             <div className="mt-4 flex flex-wrap gap-2">
               <Button
                 size="sm"
@@ -1151,14 +1180,18 @@ function ChecklistCard({
               >
                 <Check className="size-4" /> Concluir rotina
               </Button>
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => reabrir(c.id)}
-                disabled={bloqueado || p.feitos === 0}
-              >
-                <RotateCcw className="size-4" /> Reabrir
-              </Button>
+              {/* Reabrir em massa exige 'reabrir_rotina' (ou gerência da
+                  checklist) — quem só marca não reabre item concluído. */}
+              {podeReabrirItem && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => reabrir(c.id)}
+                  disabled={bloqueado || p.feitos === 0}
+                >
+                  <RotateCcw className="size-4" /> Reabrir
+                </Button>
+              )}
             </div>
           )}
         </div>
@@ -1168,12 +1201,14 @@ function ChecklistCard({
 }
 
 /**
- * Faixa exibida quando as rotinas de hoje estão desativadas (feriado). Para o
- * funcionário é só informativa; para o admin traz o atalho de reativar (a ação
- * "oficial" de pausar/retomar fica no dashboard, em PausaRotinasHoje).
+ * Faixa exibida quando as rotinas de hoje estão desativadas (feriado). Para
+ * quem não tem 'pausar_dias' é só informativa; para quem tem, traz o atalho
+ * de reativar (a ação "oficial" de pausar/retomar fica no dashboard, em
+ * PausaRotinasHoje).
  */
 function BannerRotinasPausadas({ hojeISO }: { hojeISO: string }) {
-  const { isAdmin } = useAuth();
+  const { temAcesso } = useAuth();
+  const podePausar = temAcesso("pausar_dias");
   const queryClient = useQueryClient();
   const [enviando, setEnviando] = React.useState(false);
 
@@ -1200,11 +1235,11 @@ function BannerRotinasPausadas({ hojeISO }: { hojeISO: string }) {
           <p className="text-sm font-semibold">Rotinas de hoje desativadas</p>
           <p className="text-xs text-muted-foreground">
             A marcação de itens está travada hoje.{" "}
-            {isAdmin ? "Reative para voltar a registrar." : "Fale com o administrador."}
+            {podePausar ? "Reative para voltar a registrar." : "Fale com o administrador."}
           </p>
         </div>
       </div>
-      {isAdmin && (
+      {podePausar && (
         <Button size="sm" variant="outline" disabled={enviando} onClick={reativar}>
           {enviando ? "Reativando…" : "Reativar rotinas de hoje"}
         </Button>
@@ -1254,23 +1289,31 @@ function TarefaRow({
   bloqueado: boolean;
 }) {
   const { toggleItem } = useGCheck();
+  const { isAdmin, temAcesso } = useAuth();
+  // Reabrir uma tarefa já concluída exige a permissão específica (ou admin) —
+  // por padrão um funcionário só conclui, nunca desmarca. Mesma regra do
+  // ChecklistCard, reforçada no banco pela migration 20260908160000_cargos_permissoes.sql.
+  const podeReabrir = isAdmin || temAcesso("reabrir_rotina");
   const { checklist: c, item: i, estado: est } = tarefa;
   const feito = i.status === "concluido";
   // Tarefa que ainda não tem os anexos mínimos: bloqueia a conclusão até anexar.
   const anexosPendentes = i.anexos.length < i.minAnexos && !feito;
   const respostaPendente = i.tipoTarefa === "enquete" && !i.resposta && !feito;
   const travaConclusao = anexosPendentes || respostaPendente;
+  const travado = bloqueado || travaConclusao || (feito && !podeReabrir);
 
   return (
     <li className="flex flex-wrap items-start gap-x-3 gap-y-2 p-4">
       <button
-        onClick={() => !bloqueado && !travaConclusao && !feito && toggleItem(c.id, i.id)}
-        disabled={bloqueado || travaConclusao || feito}
+        onClick={() => !travado && toggleItem(c.id, i.id)}
+        disabled={travado}
         aria-label={
           bloqueado
             ? "Rotina desativada hoje"
             : feito
-              ? `${i.titulo} concluída — só um administrador pode reabrir`
+              ? podeReabrir
+                ? `Reabrir ${i.titulo}`
+                : `${i.titulo} concluída — só um administrador pode reabrir`
               : anexosPendentes
                 ? `Anexe os arquivos para concluir ${i.titulo}`
                 : respostaPendente
@@ -1282,8 +1325,8 @@ function TarefaRow({
           feito
             ? "border-primary bg-primary text-primary-foreground"
             : "border-input hover:border-primary",
-          (bloqueado || travaConclusao) && "cursor-not-allowed opacity-50 hover:border-input",
-          feito && "cursor-default",
+          travado && "cursor-not-allowed opacity-50 hover:border-input",
+          feito && !podeReabrir && "cursor-default",
         )}
       >
         {feito && <Check className="size-3.5" />}
@@ -1380,7 +1423,14 @@ function TarefasFuncionarioLista({
 
 function ChecklistsPage() {
   const { checklists, isLoading, isError } = useGCheck();
-  const { session, isAdmin, profile } = useAuth();
+  const { session, isAdmin, temAcesso, profile } = useAuth();
+  // Acesso amplo: admin sempre; funcionário conforme as permissões do cargo.
+  // 'marcar_checklists_outros' também entra aqui — pra marcar item de rotina
+  // alheia dá pra ver a lista completa de checklists, não só a própria.
+  const podeVerTodas =
+    isAdmin || temAcesso("consultar_checklists_outros") || temAcesso("marcar_checklists_outros");
+  const podeCriar = isAdmin || temAcesso("criar_checklist");
+  const podeVerHistorico = isAdmin || temAcesso("ver_historico");
   const { hojeISO, hojeDesativado } = useHojeDesativado();
   const {
     estados,
@@ -1391,8 +1441,13 @@ function ChecklistsPage() {
     checklist: checklistDestaque,
     dia,
     vista,
+    secao,
   } = Route.useSearch();
   const navigate = Route.useNavigate();
+  // "Minhas" só existe pra quem também enxerga a lista completa — troca a
+  // lista de cards pelo mesmo formato enxuto do funcionário comum (rotina já
+  // aberta, só as próprias atividades).
+  const verMinhas = podeVerTodas && secao === "minhas";
 
   // Dia em foco: sem "?dia=" (ou dia === hoje) é o dia corrente e tudo pode ser
   // marcado; "todas" mostra todas as atividades sem recorte; qualquer outro dia é
@@ -1406,12 +1461,13 @@ function ChecklistsPage() {
   const ehPassado = !!dia && !ehHoje && !ehRecorteSemDia && dataDoIso(dia) < dataDoIso(hojeISO);
   const somenteLeitura = !ehHoje;
 
-  // Registro de um dia já fechado (snapshot em checklist_execucoes) — leitura só
-  // de admin (RLS). Alimenta as cards quando o admin navega para um dia passado.
+  // Registro de um dia já fechado (snapshot em checklist_execucoes) — leitura
+  // exige 'ver_historico' (RLS). Alimenta as cards quando dá pra ver o
+  // histórico e a navegação vai para um dia passado.
   const execucoesDiaQuery = useQuery({
     queryKey: [...HISTORICO_QUERY_KEY, dia ?? "", dia ?? ""],
     queryFn: () => fetchExecucoes(dia ?? "", dia ?? ""),
-    enabled: !!session && isAdmin && ehPassado,
+    enabled: !!session && podeVerHistorico && ehPassado,
   });
 
   const estadosSelecionados = React.useMemo(() => estados ?? [], [estados]);
@@ -1532,6 +1588,13 @@ function ChecklistsPage() {
     [navigate],
   );
 
+  const selecionarSecao = React.useCallback(
+    (proxima: "minhas" | undefined) => {
+      navigate({ search: (prev) => ({ ...prev, secao: proxima }) });
+    },
+    [navigate],
+  );
+
   if (isLoading) {
     return (
       <AppShell title="Checklists" subtitle="Rotinas operacionais da Loja Centro">
@@ -1548,7 +1611,7 @@ function ChecklistsPage() {
     );
   }
 
-  const minhasChecklists = isAdmin
+  const minhasChecklists = podeVerTodas
     ? checklists
     : checklists.filter((c) => c.ativo && ehResponsavel(c, profile?.nome));
 
@@ -1593,7 +1656,7 @@ function ChecklistsPage() {
   // Base de dados do dia em foco:
   //  - todas             -> todas as rotinas com todos os itens (somente leitura);
   //  - hoje              -> estado ao vivo (checklist_items), pode marcar;
-  //  - passado (admin)   -> snapshot congelado em checklist_execucoes (já filtrado);
+  //  - passado (com ver_historico) -> snapshot congelado em checklist_execucoes (já filtrado);
   //  - futuro, ou passado sem acesso ao histórico -> estrutura da rotina
   //    recortada para o dia, com todos os itens "pendente".
   // Nos casos que não são "hoje" as cards ficam somente-leitura.
@@ -1606,7 +1669,7 @@ function ChecklistsPage() {
           ? minhasChecklists.map(recortarPorRecorrencia("mensal"))
           : ehHoje
             ? minhasChecklists.map(recortarDia)
-            : ehPassado && isAdmin
+            : ehPassado && podeVerHistorico
               ? (execucoesDiaQuery.data ?? []).map((e) =>
                   checklistDeSnapshot(
                     e,
@@ -1672,30 +1735,32 @@ function ChecklistsPage() {
         Number(checklistPausadaNoDia(a, dataAlvo)) - Number(checklistPausadaNoDia(b, dataAlvo)),
     );
 
-  // Funcionário não vê a rotina inteira: percorre as rotinas de que é
-  // responsável (nas que passam pelos mesmos filtros de turno/dia) e monta uma
-  // lista plana de tarefas, ordenada pelo que precisa de ação primeiro.
-  const tarefasFuncionario: TarefaFuncionario[] = isAdmin
-    ? []
-    : checklistsDoDia
-        .filter((c) => passaTurno(c) && passaFuncionario(c) && ehResponsavel(c, profile?.nome))
-        .flatMap((c) =>
-          c.itens
-            .filter((i) => {
-              if (turnosSelecionados.length === 0) return true;
-              const t = i.turno ?? turnoDoHorario(i.horarioInicio);
-              return !t || turnosSelecionados.includes(t as Turno);
-            })
-            .filter((i) => (!horarioDe && !horarioAte) || horarioNaFaixa(i.horarioInicio))
-            .map((i) => ({ checklist: c, item: i, estado: estadoDaTarefa(c, i, ehHoje) })),
-        )
-        .filter((t) => estadosSelecionados.length === 0 || estadosSelecionados.includes(t.estado))
-        .sort(
-          (a, b) =>
-            (a.item.horarioInicio ?? a.checklist.horarioInicio ?? "99:99").localeCompare(
-              b.item.horarioInicio ?? b.checklist.horarioInicio ?? "99:99",
-            ) || a.item.titulo.localeCompare(b.item.titulo),
-        );
+  // Funcionário comum (ou quem escolheu a aba "Minhas") não vê a rotina
+  // inteira: percorre as rotinas de que é responsável (nas que passam pelos
+  // mesmos filtros de turno/dia) e monta uma lista plana de tarefas, ordenada
+  // pelo que precisa de ação primeiro.
+  const tarefasFuncionario: TarefaFuncionario[] =
+    podeVerTodas && !verMinhas
+      ? []
+      : checklistsDoDia
+          .filter((c) => passaTurno(c) && passaFuncionario(c) && ehResponsavel(c, profile?.nome))
+          .flatMap((c) =>
+            c.itens
+              .filter((i) => {
+                if (turnosSelecionados.length === 0) return true;
+                const t = i.turno ?? turnoDoHorario(i.horarioInicio);
+                return !t || turnosSelecionados.includes(t as Turno);
+              })
+              .filter((i) => (!horarioDe && !horarioAte) || horarioNaFaixa(i.horarioInicio))
+              .map((i) => ({ checklist: c, item: i, estado: estadoDaTarefa(c, i, ehHoje) })),
+          )
+          .filter((t) => estadosSelecionados.length === 0 || estadosSelecionados.includes(t.estado))
+          .sort(
+            (a, b) =>
+              (a.item.horarioInicio ?? a.checklist.horarioInicio ?? "99:99").localeCompare(
+                b.item.horarioInicio ?? b.checklist.horarioInicio ?? "99:99",
+              ) || a.item.titulo.localeCompare(b.item.titulo),
+          );
 
   const temFiltro =
     estadosSelecionados.length > 0 ||
@@ -1705,15 +1770,34 @@ function ChecklistsPage() {
     funcionariosSelecionados.length > 0 ||
     diaSelecionado;
 
-  const carregandoDia = ehPassado && isAdmin && execucoesDiaQuery.isLoading;
+  const carregandoDia = ehPassado && podeVerHistorico && execucoesDiaQuery.isLoading;
 
   return (
     <AppShell
       title="Checklists"
-      subtitle={isAdmin ? "Rotinas operacionais da Loja Centro" : "Suas tarefas do dia"}
+      subtitle={
+        podeVerTodas && !verMinhas ? "Rotinas operacionais da Loja Centro" : "Suas tarefas do dia"
+      }
     >
       <div className="mx-auto max-w-4xl space-y-5">
         {hojeDesativado && <BannerRotinasPausadas hojeISO={hojeISO} />}
+
+        {podeVerTodas && (
+          <ToggleGroup
+            type="single"
+            size="sm"
+            variant="outline"
+            value={verMinhas ? "minhas" : "todas"}
+            onValueChange={(v) => v && selecionarSecao(v === "minhas" ? "minhas" : undefined)}
+          >
+            <ToggleGroupItem value="todas" className="gap-1.5 px-3">
+              <Users className="size-4" /> Todas as rotinas
+            </ToggleGroupItem>
+            <ToggleGroupItem value="minhas" className="gap-1.5 px-3">
+              <User className="size-4" /> Minhas tarefas
+            </ToggleGroupItem>
+          </ToggleGroup>
+        )}
 
         {somenteLeitura && (
           <section className="flex items-center gap-3 rounded-2xl border border-border bg-muted/40 p-4">
@@ -1769,10 +1853,10 @@ function ChecklistsPage() {
               checklists={minhasChecklists}
             />
           </div>
-          {isAdmin && <NovaChecklistDialog />}
+          {podeCriar && <NovaChecklistDialog />}
         </div>
 
-        {isAdmin ? (
+        {podeVerTodas && !verMinhas ? (
           <div className="space-y-4">
             {carregandoDia ? (
               <p className="text-sm text-muted-foreground">Carregando registro do dia…</p>
