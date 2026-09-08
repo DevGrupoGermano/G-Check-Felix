@@ -19,6 +19,7 @@ import {
   Trash2,
   User,
   Users,
+  Video,
   X,
 } from "lucide-react";
 import { AppShell } from "@/components/app-shell";
@@ -634,11 +635,6 @@ function ExcluirChecklistButton({ c }: { c: Checklist }) {
   );
 }
 
-/** Tipos aceitos no seletor de arquivo dos anexos de comprovação. Só mídia
- *  (foto/vídeo) — nada de documento, porque o input é travado na câmera
- *  (ver `capture` abaixo), que não produz outro tipo de arquivo. */
-const ACCEPT_ANEXOS = "image/*,video/*";
-
 /**
  * Botões de opção de uma atividade "enquete". Ficam do lado oposto ao check
  * (que abre à esquerda da linha). Só o responsável (ou admin) escolhe; a
@@ -737,7 +733,8 @@ function AnexosItem({
   podeEditar: boolean;
 }) {
   const { anexarArquivo, removerAnexo } = useGCheck();
-  const inputRef = React.useRef<HTMLInputElement>(null);
+  const inputFotoRef = React.useRef<HTMLInputElement>(null);
+  const inputVideoRef = React.useRef<HTMLInputElement>(null);
   const [enviando, setEnviando] = React.useState(false);
 
   async function aoEscolher(ev: React.ChangeEvent<HTMLInputElement>) {
@@ -818,14 +815,25 @@ function AnexosItem({
 
           {podeEditar && (
             <>
+              {/* Um input por tipo de mídia: misturar image/*,video/* num
+                  input só faz vários celulares (sobretudo Android) não
+                  conseguirem decidir qual câmera abrir e caírem de volta na
+                  galeria. Separado + sem `multiple`, é o combo que os
+                  navegadores mobile realmente respeitam pra abrir a câmera
+                  direto, sem opção de galeria/arquivos. */}
               <input
-                ref={inputRef}
+                ref={inputFotoRef}
                 type="file"
-                accept={ACCEPT_ANEXOS}
-                // Abre a câmera direto no celular, sem opção de galeria/arquivos —
-                // a comprovação tem que ser uma foto/vídeo tirado na hora.
+                accept="image/*"
                 capture="environment"
-                multiple
+                hidden
+                onChange={aoEscolher}
+              />
+              <input
+                ref={inputVideoRef}
+                type="file"
+                accept="video/*"
+                capture="environment"
                 hidden
                 onChange={aoEscolher}
               />
@@ -835,14 +843,25 @@ function AnexosItem({
                 variant="outline"
                 className="h-7 gap-1.5 px-2 text-xs"
                 disabled={enviando}
-                onClick={() => inputRef.current?.click()}
+                onClick={() => inputFotoRef.current?.click()}
               >
                 {enviando ? (
                   <Loader2 className="size-3.5 animate-spin" />
                 ) : (
                   <Camera className="size-3.5" />
                 )}
-                Tirar foto/vídeo
+                Foto
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="h-7 gap-1.5 px-2 text-xs"
+                disabled={enviando}
+                onClick={() => inputVideoRef.current?.click()}
+              >
+                <Video className="size-3.5" />
+                Vídeo
               </Button>
             </>
           )}
