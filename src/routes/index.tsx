@@ -55,6 +55,7 @@ import {
   useHojeDesativado,
 } from "@/lib/dias-desativados";
 import {
+  checklistPausadaNoDia,
   ehResponsavel,
   estado,
   estadoLabel,
@@ -597,11 +598,15 @@ function Dashboard() {
 
   // Só entram no painel de hoje as rotinas ativas com alguma atividade programada
   // para hoje. A recorrência vive por item, então cada rotina é recortada para as
-  // atividades de hoje; as demais contam como "desativadas hoje".
+  // atividades de hoje; as demais contam como "desativadas hoje". Rotina de
+  // folga hoje (diasPausados) fica sem nenhum item, como as globalmente pausadas.
   const hoje = new Date();
   const ativas = checklists.filter((c) => c.ativo);
   const rotinasDeHoje = ativas
-    .map((c) => ({ ...c, itens: c.itens.filter((i) => itemRodaNoDia(i, hoje)) }))
+    .map((c) => ({
+      ...c,
+      itens: checklistPausadaNoDia(c, hoje) ? [] : c.itens.filter((i) => itemRodaNoDia(i, hoje)),
+    }))
     .filter((c) => c.itens.length > 0);
   const inativas = checklists.length - ativas.length;
   // Admin vê todas as rotinas de hoje por inteiro. Funcionário só vê as

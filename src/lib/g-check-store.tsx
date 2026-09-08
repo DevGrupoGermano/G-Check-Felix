@@ -134,6 +134,9 @@ export interface Checklist {
   /** Data de criação da rotina ("yyyy-MM-dd"). Antes disso ela não existia — o
    *  calendário/histórico não devem projetá-la para dias anteriores. */
   criadoEm: string;
+  /** Datas "yyyy-MM-dd" em que a rotina está de folga (dia de folga do
+   *  responsável, por exemplo) — não roda, não cobra, não notifica. */
+  diasPausados: string[];
   itens: ChecklistItem[];
 }
 
@@ -165,6 +168,8 @@ export interface ChecklistInput {
   tempoLimite?: string;
   reabreAutomatico: boolean;
   reabreIntervaloMin?: number;
+  /** Datas "yyyy-MM-dd" em que a rotina está de folga. */
+  diasPausados: string[];
   itens: ItemInput[];
 }
 
@@ -290,6 +295,7 @@ async function fetchChecklists(): Promise<Checklist[]> {
         ...descricaoAgenda(itens),
         ...(row.tempo_limite ? { tempoLimite: row.tempo_limite.slice(0, 5) } : {}),
         criadoEm: (row.created_at ?? "").slice(0, 10),
+        diasPausados: [...(row.dias_pausados ?? [])].sort(),
         itens,
       };
     })
@@ -745,6 +751,7 @@ export function GCheckProvider({ children }: { children: React.ReactNode }) {
         reabre_intervalo_min: input.reabreAutomatico
           ? (input.reabreIntervaloMin ?? null)
           : null,
+        dias_pausados: input.diasPausados,
       });
       if (checklistError) throw checklistError;
 
@@ -825,6 +832,7 @@ export function GCheckProvider({ children }: { children: React.ReactNode }) {
           reabre_intervalo_min: input.reabreAutomatico
             ? (input.reabreIntervaloMin ?? null)
             : null,
+          dias_pausados: input.diasPausados,
         })
         .eq("id", checklistId);
       if (checklistError) throw checklistError;
@@ -1002,12 +1010,20 @@ export function resumoDe(agregados: AgregadoTarefas[], chave: string): AgregadoT
   );
 }
 
+/** A rotina está de folga nesta data (dia marcado no cadastro dela)? */
+export function checklistPausadaNoDia(c: Pick<Checklist, "diasPausados">, data: Date): boolean {
+  return c.diasPausados.includes(isoDoDia(data));
+}
+
 /**
  * A rotina tem ao menos uma atividade programada para esta data? Fora disso a
  * rotina conta como "desativada" naquele dia — não é cobrada no dashboard, não
- * abre na lista. A regra por atividade está em `itemRodaNoDia` (lib/recorrencia).
+ * abre na lista. A regra por atividade está em `itemRodaNoDia` (lib/recorrencia);
+ * um dia de folga cadastrado na rotina (`diasPausados`) também desativa o dia
+ * inteiro, mesmo que algum item bateria a recorrência normalmente.
  */
 export function checklistRodaNoDia(c: Checklist, data: Date = new Date()): boolean {
+  if (checklistPausadaNoDia(c, data)) return false;
   return c.itens.some((i) => itemRodaNoDia(i, data));
 }
 

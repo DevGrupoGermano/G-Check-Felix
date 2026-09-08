@@ -3,9 +3,11 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useQuery } from "@tanstack/react-query";
 import { useFieldArray, useForm } from "react-hook-form";
 import { z } from "zod";
-import { CalendarClock, Paperclip, Pencil, Plus, Trash2 } from "lucide-react";
+import { CalendarClock, CalendarOff, Paperclip, Pencil, Plus, Trash2, X } from "lucide-react";
 
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Calendar } from "@/components/ui/calendar";
 import {
   Dialog,
   DialogContent,
@@ -24,6 +26,7 @@ import {
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
   Select,
   SelectContent,
@@ -46,7 +49,7 @@ import {
   type TipoTarefa,
 } from "@/lib/g-check-store";
 import { fetchProfiles, PROFILES_QUERY_KEY } from "@/lib/profiles";
-import { cn } from "@/lib/utils";
+import { cn, dataDoIso, isoDoDia } from "@/lib/utils";
 
 /** Divide "SIM / NÃO" ou "SIM, NÃO" numa lista limpa de opções. */
 function parseOpcoes(texto: string): string[] {
@@ -55,6 +58,8 @@ function parseOpcoes(texto: string): string[] {
     .map((s) => s.trim())
     .filter(Boolean);
 }
+
+const fmtDiaFolga = new Intl.DateTimeFormat("pt-BR", { day: "2-digit", month: "2-digit" });
 
 const itemSchema = z
   .object({
@@ -121,6 +126,7 @@ const checklistSchema = z
       .int("Use um número inteiro.")
       .min(1, "Mínimo de 1 minuto.")
       .max(1440, "No máximo 1440 minutos (24 h)."),
+    diasPausados: z.array(z.string()),
     itens: z.array(itemSchema).min(1, "Adicione ao menos um item."),
   })
   .superRefine((v, ctx) => {
@@ -158,6 +164,7 @@ function valoresPadrao(checklist?: Checklist): ChecklistFormValues {
       ativo: true,
       reabreAutomatico: false,
       reabreIntervaloMin: 20,
+      diasPausados: [],
       itens: [itemVazio],
     };
   }
@@ -168,6 +175,7 @@ function valoresPadrao(checklist?: Checklist): ChecklistFormValues {
     ativo: checklist.ativo,
     reabreAutomatico: checklist.reabreAutomatico,
     reabreIntervaloMin: checklist.reabreIntervaloMin ?? 20,
+    diasPausados: [...checklist.diasPausados],
     itens: checklist.itens.map((i) => ({
       itemId: i.id,
       titulo: i.titulo,
@@ -255,6 +263,7 @@ function ChecklistFormDialog({ checklist }: { checklist?: Checklist }) {
       reabreAutomatico: values.reabreAutomatico,
       ...(values.reabreAutomatico ? { reabreIntervaloMin: values.reabreIntervaloMin } : {}),
       ...(values.tempoLimite.trim() ? { tempoLimite: values.tempoLimite.trim() } : {}),
+      diasPausados: [...values.diasPausados].sort(),
       itens,
     };
     if (editando && checklist) {
@@ -425,6 +434,78 @@ function ChecklistFormDialog({ checklist }: { checklist?: Checklist }) {
                     )}
                   </FormItem>
                 )}
+              />
+              <FormField
+                control={form.control}
+                name="diasPausados"
+                render={({ field }) => {
+                  const datasSelecionadas = field.value.map((iso) => dataDoIso(iso));
+                  function alternarDias(dias: Date[] | undefined) {
+                    field.onChange((dias ?? []).map((d) => isoDoDia(d)).sort());
+                  }
+                  return (
+                    <FormItem className="rounded-xl border border-border p-3 sm:col-span-2">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div className="space-y-0.5">
+                          <FormLabel>Dias de folga desta rotina</FormLabel>
+                          <p className="text-xs text-muted-foreground">
+                            Nesses dias a rotina não roda nem é cobrada — pense num dia de
+                            folga do responsável.
+                          </p>
+                        </div>
+                        <Popover>
+                          <PopoverTrigger asChild>
+                            <FormControl>
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                className="shrink-0 gap-1.5"
+                              >
+                                <CalendarOff className="size-4" />
+                                {field.value.length > 0
+                                  ? `${field.value.length} ${field.value.length === 1 ? "dia" : "dias"}`
+                                  : "Escolher dias"}
+                              </Button>
+                            </FormControl>
+                          </PopoverTrigger>
+                          <PopoverContent align="end" className="w-auto p-0">
+                            <Calendar
+                              mode="multiple"
+                              selected={datasSelecionadas}
+                              onSelect={alternarDias}
+                              disabled={{ before: new Date() }}
+                            />
+                          </PopoverContent>
+                        </Popover>
+                      </div>
+                      {field.value.length > 0 && (
+                        <div className="flex flex-wrap gap-1.5">
+                          {[...field.value].sort().map((iso) => (
+                            <Badge
+                              key={iso}
+                              variant="secondary"
+                              className="gap-1 py-1 pl-2.5 pr-1.5 font-medium"
+                            >
+                              {fmtDiaFolga.format(dataDoIso(iso))}
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  field.onChange(field.value.filter((d) => d !== iso))
+                                }
+                                aria-label={`Remover dia de folga ${fmtDiaFolga.format(dataDoIso(iso))}`}
+                                className="rounded-full p-0.5 hover:bg-foreground/10"
+                              >
+                                <X className="size-3" />
+                              </button>
+                            </Badge>
+                          ))}
+                        </div>
+                      )}
+                      <FormMessage />
+                    </FormItem>
+                  );
+                }}
               />
             </div>
 

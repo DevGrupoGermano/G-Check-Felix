@@ -1,7 +1,7 @@
 import { supabase, type ChecklistExecucaoRow } from "@/lib/supabase";
 import { isoDoDia } from "@/lib/utils";
 import { itemRodaNoDia } from "@/lib/recorrencia";
-import { limiteDaRotina, type Checklist } from "@/lib/g-check-store";
+import { checklistPausadaNoDia, limiteDaRotina, type Checklist } from "@/lib/g-check-store";
 
 const ORDEM_TURNO: Record<string, number> = { Manhã: 0, Tarde: 1, Noite: 2 };
 
@@ -156,7 +156,12 @@ export function montarHistorico(opts: {
       const diaRef = new Date(cursor);
       const agoraMin = new Date().getHours() * 60 + new Date().getMinutes();
       entradas = ativas
-        .map((c) => ({ c, itensDoDia: c.itens.filter((i) => itemRodaNoDia(i, diaRef)) }))
+        .map((c) => ({
+          c,
+          itensDoDia: checklistPausadaNoDia(c, diaRef)
+            ? []
+            : c.itens.filter((i) => itemRodaNoDia(i, diaRef)),
+        }))
         .filter(({ itensDoDia }) => itensDoDia.length > 0)
         .sort(
           (a, b) =>

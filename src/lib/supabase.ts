@@ -36,6 +36,8 @@ export interface ChecklistRow {
   reabre_automatico: boolean;
   /** Intervalo em minutos entre as reaberturas — usado quando reabre_automatico. */
   reabre_intervalo_min: number | null;
+  /** Datas "yyyy-MM-dd" em que a rotina está de folga (não roda, não cobra). */
+  dias_pausados: string[];
   /** Timestamptz de criação (default now()). Marca a partir de quando a rotina existe. */
   created_at: string;
 }

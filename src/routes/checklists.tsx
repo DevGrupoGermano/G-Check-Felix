@@ -58,6 +58,7 @@ import {
   useHojeDesativado,
 } from "@/lib/dias-desativados";
 import {
+  checklistPausadaNoDia,
   checklistRodaNoDia,
   checklistVigenteNoDia,
   descricaoAgenda,
@@ -181,6 +182,7 @@ function checklistDeSnapshot(e: ChecklistExecucaoRow, vivo: Checklist | undefine
     ...(vivo?.reabreIntervaloMin ? { reabreIntervaloMin: vivo.reabreIntervaloMin } : {}),
     ...descricaoAgenda(itens),
     criadoEm: vivo?.criadoEm ?? e.data,
+    diasPausados: vivo?.diasPausados ?? [],
     itens,
   };
 }
@@ -1539,11 +1541,14 @@ function ChecklistsPage() {
   const diaSelecionado = !!dia && !ehHoje;
 
   // Recorta a rotina para o dia em foco: mantém só as atividades cuja recorrência
-  // (semanal/quinzenal/mensal, por item) cai em `dataAlvo`. Rotina sem nenhuma
-  // atividade no dia é descartada mais abaixo.
+  // (semanal/quinzenal/mensal, por item) cai em `dataAlvo`. Rotina de folga
+  // nesse dia (diasPausados) fica sem nenhum item, como se nada batesse a
+  // recorrência. Rotina sem nenhuma atividade no dia é descartada mais abaixo.
   const recortarDia = (c: Checklist): Checklist => ({
     ...c,
-    itens: c.itens.filter((i) => itemRodaNoDia(i, dataAlvo)),
+    itens: checklistPausadaNoDia(c, dataAlvo)
+      ? []
+      : c.itens.filter((i) => itemRodaNoDia(i, dataAlvo)),
   });
 
   // "?dia=quinzenal|mensal": mostra todas as rotinas, mas só com as atividades
