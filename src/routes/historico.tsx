@@ -1,7 +1,7 @@
 import * as React from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
-import { CalendarDays, CalendarOff, ChevronLeft, ChevronRight, List } from "lucide-react";
+import { CalendarDays, CalendarOff, ChevronLeft, ChevronRight, FileDown, List } from "lucide-react";
 
 import { AppShell } from "@/components/app-shell";
 import { Button } from "@/components/ui/button";
@@ -12,6 +12,7 @@ import { useGCheck } from "@/lib/g-check-store";
 import { DIAS_DESATIVADOS_QUERY_KEY, fetchDiasDesativados } from "@/lib/dias-desativados";
 import {
   fetchExecucoes,
+  gerarHistoricoPdf,
   HISTORICO_QUERY_KEY,
   montarHistorico,
   type DiaHistorico,
@@ -355,6 +356,18 @@ function HistoricoPage() {
   function setVista(v: "lista" | "calendario") {
     navigate({ search: (p) => ({ ...p, vista: v === "calendario" ? "calendario" : undefined }) });
   }
+  // Gera o PDF do período selecionado (De/Até) — na visão calendário `dias`
+  // inclui dias "vazando" para o mês vizinho, que ficam de fora aqui — e abre
+  // a pré-visualização em outra aba (visor nativo do navegador, tela cheia),
+  // deixando o download a critério do usuário.
+  function exportarPdf() {
+    const deSelISO = isoDoDia(deDate);
+    const ateSelISO = isoDoDia(ateDate);
+    const diasSelecionados = dias.filter((d) => d.iso >= deSelISO && d.iso <= ateSelISO);
+    const doc = gerarHistoricoPdf(diasSelecionados, deSelISO, ateSelISO, checklists);
+    const url = doc.output("bloburl") as unknown as string;
+    window.open(url, "_blank", "noopener,noreferrer");
+  }
   // Clique num dia (calendário ou lista) leva direto à checklist daquela data,
   // já com o filtro de dia aplicado em /checklists (somente leitura fora de hoje).
   function abrirDia(iso: string) {
@@ -408,24 +421,37 @@ function HistoricoPage() {
             </Button>
           </div>
 
-          <div className="flex items-center gap-1 rounded-lg border border-border p-0.5">
+          <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1 rounded-lg border border-border p-0.5">
+              <Button
+                variant={vista === "lista" ? "secondary" : "ghost"}
+                size="sm"
+                className="gap-1.5"
+                onClick={() => setVista("lista")}
+              >
+                <List className="size-4" />
+                Lista
+              </Button>
+              <Button
+                variant={vista === "calendario" ? "secondary" : "ghost"}
+                size="sm"
+                className="gap-1.5"
+                onClick={() => setVista("calendario")}
+              >
+                <CalendarDays className="size-4" />
+                Calendário
+              </Button>
+            </div>
+
             <Button
-              variant={vista === "lista" ? "secondary" : "ghost"}
+              variant="destructive"
               size="sm"
               className="gap-1.5"
-              onClick={() => setVista("lista")}
+              onClick={exportarPdf}
+              disabled={carregando || dias.length === 0}
             >
-              <List className="size-4" />
-              Lista
-            </Button>
-            <Button
-              variant={vista === "calendario" ? "secondary" : "ghost"}
-              size="sm"
-              className="gap-1.5"
-              onClick={() => setVista("calendario")}
-            >
-              <CalendarDays className="size-4" />
-              Calendário
+              <FileDown className="size-4" />
+              Exportar PDF
             </Button>
           </div>
         </div>

@@ -1,5 +1,8 @@
+import jsPDF from "jspdf";
+import autoTable, { type RowInput } from "jspdf-autotable";
+
 import { supabase, type ChecklistExecucaoRow } from "@/lib/supabase";
-import { isoDoDia } from "@/lib/utils";
+import { dataDoIso, isoDoDia } from "@/lib/utils";
 import { itemRodaNoDia } from "@/lib/recorrencia";
 import { checklistPausadaNoDia, limiteDaRotina, type Checklist } from "@/lib/g-check-store";
 
@@ -205,4 +208,165 @@ export function montarHistorico(opts: {
   }
 
   return dias;
+}
+
+const fmtDataPdf = new Intl.DateTimeFormat("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric" });
+
+/** Pré-carrega uma logo do /public assim que o módulo é importado, para que
+ *  já esteja pronta (img.complete) quando o usuário clicar em "Exportar PDF".
+ *  Só roda no browser — este módulo também é importado durante o SSR. */
+function preloadLogo(src: string): HTMLImageElement | null {
+  if (typeof window === "undefined") return null;
+  const img = new Image();
+  img.src = src;
+  return img;
+}
+
+const logoFelix = preloadLogo("/logo-felix.png");
+const logoGtech = preloadLogo("/logo-gtech.png");
+
+function logoPronta(img: HTMLImageElement | null): img is HTMLImageElement {
+  return !!img && img.complete && img.naturalWidth > 0;
+}
+
+const COR_CABECALHO_DIA: [number, number, number] = [241, 245, 249];
+const COR_TEXTO_DIA: [number, number, number] = [30, 41, 59];
+const COR_TEXTO_APAGADO: [number, number, number] = [120, 120, 120];
+const COLUNAS_TABELA = 5;
+
+/**
+ * Monta o PDF com as rotinas do período: funcionário, rotina, número de
+ * atividades, quantidade concluída e quantidade incompleta de cada dia. Não
+ * baixa o arquivo — quem chamar decide o que fazer com o documento (pré-
+ * visualizar, baixar etc).
+ *
+ * Regras da tabela:
+ * - dias que ainda não chegaram (futuros) não geram registro nenhum;
+ * - dia marcado como sem expediente vira uma única linha "Dia desativado";
+ * - rotina com dia de folga cadastrado nela (mas o dia em si com expediente
+ *   normal) vira uma linha avisando que só aquela rotina foi desativada;
+ * - cada dia começa com uma linha de cabeçalho (data), marcando a virada
+ *   para quem estiver lendo a tabela.
+ */
+export function gerarHistoricoPdf(
+  dias: DiaHistorico[],
+  deISO: string,
+  ateISO: string,
+  checklists: Checklist[],
+): jsPDF {
+  const doc = new jsPDF();
+  // Vira o nome sugerido pelo visor nativo do navegador ao baixar a partir
+  // da pré-visualização (a aba aberta com o blob não tem nome de arquivo).
+  doc.setProperties({ title: `historico-rotinas_${deISO}_a_${ateISO}` });
+
+  const pageWidth = doc.internal.pageSize.getWidth();
+
+  doc.setFontSize(14);
+  doc.text("Histórico de rotinas", 14, 16);
+  doc.setFontSize(10);
+  doc.setTextColor(100);
+  doc.text(
+    `Período: ${fmtDataPdf.format(dataDoIso(deISO))} a ${fmtDataPdf.format(dataDoIso(ateISO))}`,
+    14,
+    22,
+  );
+
+  // Canto oposto ao título — logo da Felix.
+  if (logoPronta(logoFelix)) {
+    const w = 18;
+    const h = (w * logoFelix.naturalHeight) / logoFelix.naturalWidth;
+    doc.addImage(logoFelix, "PNG", pageWidth - 14 - w, 8, w, h);
+  }
+
+  const hojeISO = isoDoDia(new Date());
+  const ativas = checklists.filter((c) => c.ativo);
+
+  const linhas: RowInput[] = [];
+  for (const dia of dias) {
+    if (dia.iso > hojeISO) continue; // dia ainda não chegou — sem registro
+
+    const rotinasDesativadas = dia.pausado
+      ? []
+      : ativas.filter(
+          (c) =>
+            c.criadoEm <= dia.iso &&
+            checklistPausadaNoDia(c, dia.data) &&
+            !dia.entradas.some((e) => e.checklistId === c.id),
+        );
+
+    if (!dia.pausado && dia.entradas.length === 0 && rotinasDesativadas.length === 0) continue;
+
+    linhas.push([
+      {
+        content: fmtDataPdf.format(dia.data),
+        colSpan: COLUNAS_TABELA,
+        styles: { fillColor: COR_CABECALHO_DIA, textColor: COR_TEXTO_DIA, fontStyle: "bold" },
+      },
+    ]);
+
+    if (dia.pausado) {
+      linhas.push([
+        {
+          content: "Dia desativado — sem expediente",
+          colSpan: COLUNAS_TABELA,
+          styles: { fontStyle: "italic", textColor: COR_TEXTO_APAGADO },
+        },
+      ]);
+      continue;
+    }
+
+    for (const e of dia.entradas) {
+      linhas.push([
+        e.responsavel || "—",
+        e.nome,
+        e.total,
+        e.feitos,
+        Math.max(e.total - e.feitos, 0),
+      ]);
+    }
+
+    for (const c of rotinasDesativadas) {
+      linhas.push([
+        c.responsavel || "—",
+        { content: `${c.nome} — rotina desativada nesse dia`, styles: { fontStyle: "italic", textColor: COR_TEXTO_APAGADO } },
+        { content: "—", styles: { textColor: COR_TEXTO_APAGADO } },
+        { content: "—", styles: { textColor: COR_TEXTO_APAGADO } },
+        { content: "—", styles: { textColor: COR_TEXTO_APAGADO } },
+      ]);
+    }
+  }
+
+  const gtechPronta = logoPronta(logoGtech);
+  const larguraLogoGtech = 22;
+  const alturaLogoGtech = gtechPronta
+    ? (larguraLogoGtech * logoGtech.naturalHeight) / logoGtech.naturalWidth
+    : 0;
+  const espacoLogoGtech = 10 + alturaLogoGtech; // vão até a logo + respiro abaixo dela
+  const margemInferiorPadrao = 10;
+
+  autoTable(doc, {
+    startY: 28,
+    head: [["Funcionário", "Rotina", "Nº de atividades", "Concluídas", "Incompletas"]],
+    body: linhas,
+    styles: { fontSize: 9 },
+    headStyles: { fillColor: [220, 38, 38] },
+    // Reserva o espaço da logo em toda página, inclusive a última — assim ela
+    // nunca "sobra" sozinha numa página nova, sempre encaixa logo após a tabela.
+    margin: { left: 14, right: 14, bottom: margemInferiorPadrao + espacoLogoGtech },
+  });
+
+  if (gtechPronta) {
+    const finalY =
+      (doc as unknown as { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY ?? 28;
+    doc.addImage(
+      logoGtech,
+      "PNG",
+      (pageWidth - larguraLogoGtech) / 2,
+      finalY + 10,
+      larguraLogoGtech,
+      alturaLogoGtech,
+    );
+  }
+
+  return doc;
 }
