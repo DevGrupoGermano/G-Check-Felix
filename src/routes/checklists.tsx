@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import {
   CalendarDays,
   CalendarOff,
+  Camera,
   Check,
   ChevronDown,
   Clock,
@@ -633,8 +634,10 @@ function ExcluirChecklistButton({ c }: { c: Checklist }) {
   );
 }
 
-/** Tipos aceitos no seletor de arquivo dos anexos de comprovação. */
-const ACCEPT_ANEXOS = "image/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.txt";
+/** Tipos aceitos no seletor de arquivo dos anexos de comprovação. Só mídia
+ *  (foto/vídeo) — nada de documento, porque o input é travado na câmera
+ *  (ver `capture` abaixo), que não produz outro tipo de arquivo. */
+const ACCEPT_ANEXOS = "image/*,video/*";
 
 /**
  * Botões de opção de uma atividade "enquete". Ficam do lado oposto ao check
@@ -819,6 +822,9 @@ function AnexosItem({
                 ref={inputRef}
                 type="file"
                 accept={ACCEPT_ANEXOS}
+                // Abre a câmera direto no celular, sem opção de galeria/arquivos —
+                // a comprovação tem que ser uma foto/vídeo tirado na hora.
+                capture="environment"
                 multiple
                 hidden
                 onChange={aoEscolher}
@@ -834,9 +840,9 @@ function AnexosItem({
                 {enviando ? (
                   <Loader2 className="size-3.5 animate-spin" />
                 ) : (
-                  <Paperclip className="size-3.5" />
+                  <Camera className="size-3.5" />
                 )}
-                Adicionar arquivo
+                Tirar foto/vídeo
               </Button>
             </>
           )}
