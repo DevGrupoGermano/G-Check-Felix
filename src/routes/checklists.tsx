@@ -48,15 +48,11 @@ import {
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Progress } from "@/components/ui/progress";
 import { Textarea } from "@/components/ui/textarea";
-import { cn, dataDoIso } from "@/lib/utils";
+import { cn, dataDoIso, isoDoDia } from "@/lib/utils";
 import { useAuth } from "@/lib/auth-store";
 import type { ChecklistExecucaoRow } from "@/lib/supabase";
 import { fetchExecucoes, HISTORICO_QUERY_KEY } from "@/lib/historico";
-import {
-  DIAS_DESATIVADOS_QUERY_KEY,
-  reativarDia,
-  useHojeDesativado,
-} from "@/lib/dias-desativados";
+import { DIAS_DESATIVADOS_QUERY_KEY, reativarDia, useHojeDesativado } from "@/lib/dias-desativados";
 import {
   checklistPausadaNoDia,
   checklistRodaNoDia,
@@ -85,11 +81,7 @@ import {
  *  - `concluido` — todos os itens feitos (verde).
  */
 export type EstadoVista =
-  | "nao_iniciada"
-  | "pendente"
-  | "em_andamento"
-  | "atrasada"
-  | "concluido";
+  "nao_iniciada" | "pendente" | "em_andamento" | "atrasada" | "concluido" | "desativada";
 
 const ESTADOS_VALIDOS: EstadoVista[] = [
   "nao_iniciada",
@@ -97,6 +89,7 @@ const ESTADOS_VALIDOS: EstadoVista[] = [
   "em_andamento",
   "atrasada",
   "concluido",
+  "desativada",
 ];
 
 /** Minutos desde a meia-noite de um horário "HH:MM". */
@@ -107,9 +100,11 @@ function minutosHHMM(hhmm: string): number {
 
 /**
  * Estado ao vivo de uma rotina de hoje. A ordem das checagens define a
- * prioridade: concluída > atrasada > em andamento > pendente/não iniciada.
+ * prioridade: desativada (de folga) > concluída > atrasada > em andamento >
+ * pendente/não iniciada.
  */
 function estadoVista(c: Checklist, agora: Date = new Date()): EstadoVista {
+  if (checklistPausadaNoDia(c, agora)) return "desativada";
   const { feitos, total } = progresso(c);
   if (total > 0 && feitos === total) return "concluido";
   const agoraMin = agora.getHours() * 60 + agora.getMinutes();
@@ -118,16 +113,17 @@ function estadoVista(c: Checklist, agora: Date = new Date()): EstadoVista {
   if (feitos > 0) return "em_andamento";
   // Nada feito e dentro do prazo: "pendente" quando o horário de início dos
   // itens já chegou (ou não há horário); senão ainda está fora da janela.
-  return !c.horarioInicio || agoraMin >= minutosHHMM(c.horarioInicio)
-    ? "pendente"
-    : "nao_iniciada";
+  return !c.horarioInicio || agoraMin >= minutosHHMM(c.horarioInicio) ? "pendente" : "nao_iniciada";
 }
 
 /**
  * Estado do card conforme o dia em foco. Só o dia de hoje tem relógio ao vivo;
  * nos dias só-leitura (passado/futuro) "nada feito" é sempre "não iniciada".
+ * `dataFoco` é o dia sendo visualizado — usado só para checar se a rotina
+ * está de folga (diasPausados) naquele dia específico.
  */
-function estadoVistaCard(c: Checklist, ehHoje: boolean): EstadoVista {
+function estadoVistaCard(c: Checklist, ehHoje: boolean, dataFoco: Date = new Date()): EstadoVista {
+  if (checklistPausadaNoDia(c, dataFoco)) return "desativada";
   if (ehHoje) return estadoVista(c);
   const { feitos, total } = progresso(c);
   if (total > 0 && feitos === total) return "concluido";
@@ -141,6 +137,7 @@ const ESTADO_VISTA_UI: Record<EstadoVista, { label: string; classe: string }> = 
   em_andamento: { label: "Em andamento", classe: "bg-info/15 text-info" },
   atrasada: { label: "Atrasada", classe: "bg-destructive/15 text-destructive" },
   concluido: { label: "Concluído", classe: "bg-success/15 text-success" },
+  desativada: { label: "De folga", classe: "bg-destructive/15 text-destructive" },
 };
 
 /**
@@ -176,7 +173,7 @@ function checklistDeSnapshot(e: ChecklistExecucaoRow, vivo: Checklist | undefine
   return {
     id: e.checklist_id,
     nome: e.nome,
-    responsavel: vivo?.responsavel ?? (e.itens[0]?.responsavel ?? ""),
+    responsavel: vivo?.responsavel ?? e.itens[0]?.responsavel ?? "",
     ativo: vivo?.ativo ?? true,
     reabreAutomatico: vivo?.reabreAutomatico ?? false,
     ...(vivo?.reabreIntervaloMin ? { reabreIntervaloMin: vivo.reabreIntervaloMin } : {}),
@@ -263,8 +260,7 @@ export const Route = createFileRoute("/checklists")({
     const turnosSearch = Array.isArray(rawTurnos)
       ? rawTurnos.filter((t): t is Turno => (turnos as readonly string[]).includes(t as string))
       : undefined;
-    const ehHHMM = (v: unknown): v is string =>
-      typeof v === "string" && /^\d{2}:\d{2}$/.test(v);
+    const ehHHMM = (v: unknown): v is string => typeof v === "string" && /^\d{2}:\d{2}$/.test(v);
     const horarioDe = ehHHMM(rawHorarioDe) ? rawHorarioDe : undefined;
     const horarioAte = ehHHMM(rawHorarioAte) ? rawHorarioAte : undefined;
     // Funcionários é texto livre (vem do cadastro): só filtramos por tipo.
@@ -300,6 +296,7 @@ const estadoOptions: { id: EstadoVista; label: string }[] = [
   { id: "em_andamento", label: "Em andamento" },
   { id: "atrasada", label: "Atrasadas" },
   { id: "concluido", label: "Concluídos" },
+  { id: "desativada", label: "Desativadas" },
 ];
 
 const turnoOptions: { id: Turno; label: string }[] = turnos.map((t) => ({ id: t, label: t }));
@@ -547,8 +544,16 @@ function FiltrosChecklist({
   );
 }
 
-function EstadoBadge({ c, ehHoje = true }: { c: Checklist; ehHoje?: boolean }) {
-  const ui = ESTADO_VISTA_UI[estadoVistaCard(c, ehHoje)];
+function EstadoBadge({
+  c,
+  ehHoje = true,
+  dataFoco = new Date(),
+}: {
+  c: Checklist;
+  ehHoje?: boolean;
+  dataFoco?: Date;
+}) {
+  const ui = ESTADO_VISTA_UI[estadoVistaCard(c, ehHoje, dataFoco)];
   return (
     <Badge variant="outline" className={cn("border-transparent font-medium", ui.classe)}>
       {ui.label}
@@ -851,6 +856,7 @@ function ChecklistCard({
   travado = false,
   somenteLeitura = false,
   diaFechado = false,
+  dataFoco = new Date(),
 }: {
   c: Checklist;
   destacar?: boolean | undefined;
@@ -860,15 +866,21 @@ function ChecklistCard({
   somenteLeitura?: boolean | undefined;
   /** Dia passado já encerrado: o badge de estado vira "Concluída"/"Incompleta". */
   diaFechado?: boolean | undefined;
+  /** Dia sendo visualizado — usado para saber se a ROTINA está de folga nele. */
+  dataFoco?: Date | undefined;
 }) {
-  const { toggleItem, concluirTodos, reabrir } = useGCheck();
+  const { toggleItem, concluirTodos, reabrir, removerDiaPausado } = useGCheck();
   const { isAdmin, profile } = useAuth();
   const [aberto, setAberto] = React.useState(destacar);
   const sectionRef = React.useRef<HTMLElement>(null);
   const p = progresso(c);
-  // Dia pausado (feriado): a rotina não abre nem aceita marcação — o card fica só
-  // com o cabeçalho. "somenteLeitura" (outro dia) ainda abre.
-  const bloqueado = travado;
+  // Rotina de folga neste dia (cadastro dela, não o feriado geral da loja):
+  // fica visível, mas bloqueada e com aviso — não desaparece da lista.
+  const pausada = checklistPausadaNoDia(c, dataFoco);
+  // Dia pausado (feriado) ou rotina de folga: a rotina não abre nem aceita
+  // marcação — o card fica só com o cabeçalho. "somenteLeitura" (outro dia)
+  // ainda abre.
+  const bloqueado = travado || pausada;
   const expandido = aberto && !bloqueado;
 
   // Chegou pela URL "?checklist=<id>" (link de uma pendência no dashboard):
@@ -881,8 +893,9 @@ function ChecklistCard({
     <section
       ref={sectionRef}
       className={cn(
-        "scroll-mt-24 rounded-2xl border border-border bg-card shadow-sm transition-shadow",
-        (!c.ativo || bloqueado) && "opacity-70",
+        "scroll-mt-24 rounded-2xl border shadow-sm transition-shadow",
+        pausada ? "border-destructive/30 bg-destructive/5" : "border-border bg-card",
+        !pausada && (!c.ativo || bloqueado) && "opacity-70",
         destacar && "ring-2 ring-primary/60",
       )}
     >
@@ -918,8 +931,8 @@ function ChecklistCard({
                   </span>
                 )}
                 <span className="inline-flex items-center gap-1">
-                  <CalendarDays className="size-3.5" />{" "}
-                  {c.itens.length} {c.itens.length === 1 ? "atividade" : "atividades"}
+                  <CalendarDays className="size-3.5" /> {c.itens.length}{" "}
+                  {c.itens.length === 1 ? "atividade" : "atividades"}
                 </span>
                 {c.reabreAutomatico && c.reabreIntervaloMin && (
                   <span className="inline-flex items-center gap-1">
@@ -946,7 +959,15 @@ function ChecklistCard({
                   Leitura
                 </Badge>
               )}
-              {bloqueado ? (
+              {pausada ? (
+                <Badge
+                  variant="outline"
+                  className="gap-1 border-transparent bg-destructive/15 text-destructive"
+                >
+                  <CalendarOff className="size-3" />
+                  De folga
+                </Badge>
+              ) : bloqueado ? (
                 <Badge
                   variant="outline"
                   className="border-transparent bg-muted text-muted-foreground"
@@ -956,7 +977,7 @@ function ChecklistCard({
               ) : diaFechado ? (
                 <BadgeDiaFechado c={c} />
               ) : (
-                <EstadoBadge c={c} ehHoje={!somenteLeitura} />
+                <EstadoBadge c={c} ehHoje={!somenteLeitura} dataFoco={dataFoco} />
               )}
               {!bloqueado && (
                 <ChevronDown
@@ -968,18 +989,40 @@ function ChecklistCard({
               )}
             </div>
           </div>
-          <div className="space-y-2">
-            <div className="flex items-center justify-between text-xs text-muted-foreground">
-              <span>
-                {p.feitos} de {p.total} itens concluídos
-              </span>
-              <span className="font-medium text-foreground">{p.pct}%</span>
+          {pausada ? (
+            <p className="flex items-center gap-1.5 text-xs text-destructive">
+              <CalendarOff className="size-3.5 shrink-0" />
+              Rotina de folga neste dia — as atividades continuam cadastradas (nada foi apagado), só
+              não contam como pendência nem podem ser marcadas hoje.
+              {isAdmin && " Use o botão de reabrir ao lado para remover a folga deste dia."}
+            </p>
+          ) : (
+            <div className="space-y-2">
+              <div className="flex items-center justify-between text-xs text-muted-foreground">
+                <span>
+                  {p.feitos} de {p.total} itens concluídos
+                </span>
+                <span className="font-medium text-foreground">{p.pct}%</span>
+              </div>
+              <Progress value={p.pct} className="h-1.5" />
             </div>
-            <Progress value={p.pct} className="h-1.5" />
-          </div>
+          )}
         </button>
         {isAdmin && (
           <div className="flex shrink-0 items-center gap-0.5">
+            {pausada && (
+              <Button
+                type="button"
+                size="icon"
+                variant="ghost"
+                className="size-8 shrink-0 text-destructive hover:text-destructive"
+                aria-label="Remover folga deste dia"
+                title="Remover folga deste dia"
+                onClick={() => removerDiaPausado(c.id, isoDoDia(dataFoco))}
+              >
+                <RotateCcw className="size-4" />
+              </Button>
+            )}
             <EditarChecklistDialog checklist={c} />
             <ExcluirChecklistButton c={c} />
           </div>
@@ -1059,13 +1102,9 @@ function ChecklistCard({
                         <CalendarDays className="size-3" /> {labelRecorrencia(i)}
                       </span>
                       <span
-                        className={cn(
-                          "inline-flex items-center gap-1",
-                          !infoHorario && "italic",
-                        )}
+                        className={cn("inline-flex items-center gap-1", !infoHorario && "italic")}
                       >
-                        <Clock className="size-3" />{" "}
-                        {infoHorario || "Sem horário definido"}
+                        <Clock className="size-3" /> {infoHorario || "Sem horário definido"}
                       </span>
                       {i.tipoTarefa === "enquete" && (
                         <span className="inline-flex items-center gap-1">
@@ -1080,11 +1119,7 @@ function ChecklistCard({
                       )}
                     </p>
                     {(i.minAnexos > 0 || i.anexos.length > 0) && (
-                      <AnexosItem
-                        checklistId={c.id}
-                        item={i}
-                        podeEditar={podeMarcar && !feito}
-                      />
+                      <AnexosItem checklistId={c.id} item={i} podeEditar={podeMarcar && !feito} />
                     )}
                   </div>
                   {i.tipoTarefa === "enquete" && (
@@ -1270,11 +1305,7 @@ function TarefaRow({
         {i.tipoTarefa === "enquete" && (
           <div className="mt-2 space-y-2">
             <EnqueteOpcoes checklistId={c.id} item={i} podeEditar={!bloqueado && !feito} />
-            <JustificativaCampo
-              checklistId={c.id}
-              item={i}
-              podeEditar={!bloqueado && !feito}
-            />
+            <JustificativaCampo checklistId={c.id} item={i} podeEditar={!bloqueado && !feito} />
           </div>
         )}
       </div>
@@ -1372,8 +1403,7 @@ function ChecklistsPage() {
   // Recortes que ignoram o dia do calendário (visões transversais só-leitura).
   const ehRecorteSemDia = ehTodas || ehQuinzenal || ehMensal;
   const ehHoje = !dia || dia === hojeISO;
-  const ehPassado =
-    !!dia && !ehHoje && !ehRecorteSemDia && dataDoIso(dia) < dataDoIso(hojeISO);
+  const ehPassado = !!dia && !ehHoje && !ehRecorteSemDia && dataDoIso(dia) < dataDoIso(hojeISO);
   const somenteLeitura = !ehHoje;
 
   // Registro de um dia já fechado (snapshot em checklist_execucoes) — leitura só
@@ -1587,7 +1617,7 @@ function ChecklistsPage() {
                   .filter((c) => checklistVigenteNoDia(c, dataAlvo))
                   .map(recortarDia)
                   .map(checklistPendente)
-  ).filter((c) => c.itens.length > 0);
+  ).filter((c) => c.itens.length > 0 || checklistPausadaNoDia(c, dataAlvo));
 
   // Recorte por responsável da rotina — vale para qualquer dia em foco, então
   // roda antes das ramificações de estado abaixo.
@@ -1622,17 +1652,25 @@ function ChecklistsPage() {
   const lista = checklistsDoDia
     .map(recortarHorario)
     .filter((c) => {
-      if (temFiltroHorario && c.itens.length === 0) return false;
+      if (temFiltroHorario && c.itens.length === 0 && !checklistPausadaNoDia(c, dataAlvo)) {
+        return false;
+      }
       if (!passaTurno(c)) return false;
       if (!passaFuncionario(c)) return false;
       if (!ehHoje) {
         return (
           estadosSelecionados.length === 0 ||
-          estadosSelecionados.includes(estadoVistaCard(c, false))
+          estadosSelecionados.includes(estadoVistaCard(c, false, dataAlvo))
         );
       }
       return estadosSelecionados.length === 0 || estadosSelecionados.includes(estadoVista(c));
-    });
+    })
+    // Rotinas de folga vão para o fim da lista — sort estável preserva a
+    // ordem (horário/nome) já aplicada entre as que não estão de folga.
+    .sort(
+      (a, b) =>
+        Number(checklistPausadaNoDia(a, dataAlvo)) - Number(checklistPausadaNoDia(b, dataAlvo)),
+    );
 
   // Funcionário não vê a rotina inteira: percorre as rotinas de que é
   // responsável (nas que passam pelos mesmos filtros de turno/dia) e monta uma
@@ -1748,6 +1786,7 @@ function ChecklistsPage() {
                     travado={hojeDesativado}
                     somenteLeitura={somenteLeitura}
                     diaFechado={ehPassado}
+                    dataFoco={dataAlvo}
                   />
                 ))}
                 {lista.length === 0 && (

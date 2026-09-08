@@ -10,8 +10,8 @@ import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
 import {
   Dialog,
+  DialogClose,
   DialogContent,
-  DialogFooter,
   DialogHeader,
   DialogTitle,
   DialogTrigger,
@@ -105,13 +105,8 @@ const itemSchema = z
         message: "O máximo não pode ser menor que o mínimo.",
       });
     }
-    if (v.horarioInicio && v.horarioTermino && v.horarioTermino < v.horarioInicio) {
-      ctx.addIssue({
-        code: "custom",
-        path: ["horarioTermino"],
-        message: "O término deve ser depois do início.",
-      });
-    }
+    // Sem checagem de "término depois do início": a janela pode virar a
+    // meia-noite (ex.: 21:00–05:00, turno da noite).
   });
 
 const checklistSchema = z
@@ -197,6 +192,9 @@ function ChecklistFormDialog({ checklist }: { checklist?: Checklist }) {
   const { criarChecklist, editarChecklist } = useGCheck();
   const [open, setOpen] = React.useState(false);
   const editando = !!checklist;
+  // Liga o botão "Salvar" (fora da tag <form>, no cabeçalho fixo) ao form via
+  // atributo HTML "form" — dispensa recuperar o formulário por ref.
+  const formId = React.useId();
 
   const form = useForm<ChecklistFormValues>({
     resolver: zodResolver(checklistSchema),
@@ -293,353 +291,295 @@ function ChecklistFormDialog({ checklist }: { checklist?: Checklist }) {
           </Button>
         )}
       </DialogTrigger>
-      <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-xl">
-        <DialogHeader>
-          <DialogTitle>{editando ? "Editar checklist" : "Nova checklist"}</DialogTitle>
-        </DialogHeader>
+      <DialogContent
+        showCloseButton={false}
+        className="flex max-h-[85vh] flex-col gap-0 overflow-hidden p-0 sm:max-w-xl"
+      >
+        {/* Cabeçalho fixo: fica sempre visível ao rolar o formulário, então
+            dá pra salvar ou sair (X ao lado do Salvar) em qualquer ponto da
+            rolagem, sem precisar voltar ao topo ou ao fim do formulário. */}
+        <div className="sticky top-0 z-10 flex shrink-0 items-center justify-between gap-3 border-b border-border bg-background px-6 py-4">
+          <DialogHeader className="space-y-0">
+            <DialogTitle>{editando ? "Editar checklist" : "Nova checklist"}</DialogTitle>
+          </DialogHeader>
+          <div className="flex shrink-0 items-center gap-2">
+            <Button type="submit" form={formId} size="sm">
+              {editando ? "Salvar alterações" : "Criar checklist"}
+            </Button>
+            <DialogClose asChild>
+              <Button
+                type="button"
+                size="icon"
+                variant="ghost"
+                className="size-8 text-muted-foreground hover:text-foreground"
+                aria-label="Cancelar"
+              >
+                <X className="size-4" />
+              </Button>
+            </DialogClose>
+          </div>
+        </div>
 
-        <Form {...form}>
-          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-5">
-            <div className="grid gap-4 sm:grid-cols-2">
-              <FormField
-                control={form.control}
-                name="nome"
-                render={({ field }) => (
-                  <FormItem className="sm:col-span-2">
-                    <FormLabel>Nome da checklist</FormLabel>
-                    <FormControl>
-                      <Input placeholder="Ex.: Inventário de bebidas" {...field} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={form.control}
-                name="responsavel"
-                render={({ field }) => {
-                  // Um único funcionário responsável por toda a rotina — não
-                  // por item. Se o responsável atual não estiver mais na lista
-                  // de funcionários (removido depois), entra como opção extra
-                  // para não sumir ao editar.
-                  const opcoes =
-                    field.value && !nomesFuncionarios.includes(field.value)
-                      ? [field.value, ...nomesFuncionarios]
-                      : nomesFuncionarios;
-                  return (
-                    <FormItem>
-                      <FormLabel>Responsável</FormLabel>
-                      <Select value={field.value} onValueChange={field.onChange}>
-                        <FormControl>
-                          <SelectTrigger>
-                            <SelectValue placeholder="Selecione um funcionário" />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          {opcoes.length === 0 && (
-                            <p className="px-2 py-1.5 text-sm text-muted-foreground">
-                              Nenhum funcionário cadastrado
-                            </p>
-                          )}
-                          {opcoes.map((nome) => (
-                            <SelectItem key={nome} value={nome}>
-                              {nome}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+        <div className="flex-1 overflow-y-auto px-6 py-4">
+          <Form {...form}>
+            <form id={formId} onSubmit={form.handleSubmit(onSubmit)} className="space-y-5">
+              <div className="grid gap-4 sm:grid-cols-2">
+                <FormField
+                  control={form.control}
+                  name="nome"
+                  render={({ field }) => (
+                    <FormItem className="sm:col-span-2">
+                      <FormLabel>Nome da checklist</FormLabel>
+                      <FormControl>
+                        <Input placeholder="Ex.: Inventário de bebidas" {...field} />
+                      </FormControl>
                       <FormMessage />
                     </FormItem>
-                  );
-                }}
-              />
-              <div className="rounded-xl border border-border p-3 text-xs text-muted-foreground sm:col-span-2">
-                <span className="font-medium text-foreground">Agenda (automática): </span>
-                {agenda.turnos.length > 0 || agenda.horarioInicio
-                  ? [
-                      agenda.turnos.join(" · "),
-                      agenda.horarioInicio &&
-                        (agenda.horarioTermino
-                          ? `${agenda.horarioInicio}–${agenda.horarioTermino}`
-                          : agenda.horarioInicio),
-                    ]
-                      .filter(Boolean)
-                      .join(" · ")
-                  : "defina o horário de início nas atividades"}
-              </div>
-              <FormField
-                control={form.control}
-                name="ativo"
-                render={({ field }) => (
-                  <FormItem className="flex flex-row items-center justify-between rounded-xl border border-border p-3 sm:col-span-2">
-                    <div className="space-y-0.5">
-                      <FormLabel>Rotina ativa</FormLabel>
-                      <p className="text-xs text-muted-foreground">
-                        Rotinas inativas saem do dashboard e da visão dos funcionários.
-                      </p>
-                    </div>
-                    <FormControl>
-                      <Switch checked={field.value} onCheckedChange={field.onChange} />
-                    </FormControl>
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={form.control}
-                name="reabreAutomatico"
-                render={({ field }) => (
-                  <FormItem className="space-y-3 rounded-xl border border-border p-3 sm:col-span-2">
-                    <div className="flex flex-row items-center justify-between">
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="responsavel"
+                  render={({ field }) => {
+                    // Um único funcionário responsável por toda a rotina — não
+                    // por item. Se o responsável atual não estiver mais na lista
+                    // de funcionários (removido depois), entra como opção extra
+                    // para não sumir ao editar.
+                    const opcoes =
+                      field.value && !nomesFuncionarios.includes(field.value)
+                        ? [field.value, ...nomesFuncionarios]
+                        : nomesFuncionarios;
+                    return (
+                      <FormItem>
+                        <FormLabel>Responsável</FormLabel>
+                        <Select value={field.value} onValueChange={field.onChange}>
+                          <FormControl>
+                            <SelectTrigger>
+                              <SelectValue placeholder="Selecione um funcionário" />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            {opcoes.length === 0 && (
+                              <p className="px-2 py-1.5 text-sm text-muted-foreground">
+                                Nenhum funcionário cadastrado
+                              </p>
+                            )}
+                            {opcoes.map((nome) => (
+                              <SelectItem key={nome} value={nome}>
+                                {nome}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <FormMessage />
+                      </FormItem>
+                    );
+                  }}
+                />
+                <div className="rounded-xl border border-border p-3 text-xs text-muted-foreground sm:col-span-2">
+                  <span className="font-medium text-foreground">Agenda (automática): </span>
+                  {agenda.turnos.length > 0 || agenda.horarioInicio
+                    ? [
+                        agenda.turnos.join(" · "),
+                        agenda.horarioInicio &&
+                          (agenda.horarioTermino
+                            ? `${agenda.horarioInicio}–${agenda.horarioTermino}`
+                            : agenda.horarioInicio),
+                      ]
+                        .filter(Boolean)
+                        .join(" · ")
+                    : "defina o horário de início nas atividades"}
+                </div>
+                <FormField
+                  control={form.control}
+                  name="ativo"
+                  render={({ field }) => (
+                    <FormItem className="flex flex-row items-center justify-between rounded-xl border border-border p-3 sm:col-span-2">
                       <div className="space-y-0.5">
-                        <FormLabel>Reabre automaticamente</FormLabel>
+                        <FormLabel>Rotina ativa</FormLabel>
                         <p className="text-xs text-muted-foreground">
-                          Volta os itens para pendente ao longo do dia (ex.: giro da
-                          Segurança). Anexos e respostas do ciclo são limpos a cada reabertura.
+                          Rotinas inativas saem do dashboard e da visão dos funcionários.
                         </p>
                       </div>
                       <FormControl>
                         <Switch checked={field.value} onCheckedChange={field.onChange} />
                       </FormControl>
-                    </div>
-                    {field.value && (
-                      <FormField
-                        control={form.control}
-                        name="reabreIntervaloMin"
-                        render={({ field: intervalo }) => (
-                          <FormItem className="flex flex-row items-center gap-2">
-                            <FormLabel className="text-xs font-normal text-muted-foreground">
-                              Reabrir a cada
-                            </FormLabel>
-                            <FormControl>
-                              <Input
-                                type="number"
-                                min={1}
-                                max={1440}
-                                inputMode="numeric"
-                                className="w-20 text-center"
-                                value={intervalo.value}
-                                onChange={(e) =>
-                                  intervalo.onChange(Number(e.target.value) || 0)
-                                }
-                                onBlur={intervalo.onBlur}
-                                name={intervalo.name}
-                                ref={intervalo.ref}
-                              />
-                            </FormControl>
-                            <span className="text-xs text-muted-foreground">minutos</span>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-                    )}
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={form.control}
-                name="diasPausados"
-                render={({ field }) => {
-                  const datasSelecionadas = field.value.map((iso) => dataDoIso(iso));
-                  function alternarDias(dias: Date[] | undefined) {
-                    field.onChange((dias ?? []).map((d) => isoDoDia(d)).sort());
-                  }
-                  return (
-                    <FormItem className="rounded-xl border border-border p-3 sm:col-span-2">
-                      <div className="flex flex-wrap items-center justify-between gap-2">
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="reabreAutomatico"
+                  render={({ field }) => (
+                    <FormItem className="space-y-3 rounded-xl border border-border p-3 sm:col-span-2">
+                      <div className="flex flex-row items-center justify-between">
                         <div className="space-y-0.5">
-                          <FormLabel>Dias de folga desta rotina</FormLabel>
+                          <FormLabel>Reabre automaticamente</FormLabel>
                           <p className="text-xs text-muted-foreground">
-                            Nesses dias a rotina não roda nem é cobrada — pense num dia de
-                            folga do responsável.
+                            Volta os itens para pendente ao longo do dia (ex.: giro da Segurança).
+                            Anexos e respostas do ciclo são limpos a cada reabertura.
                           </p>
                         </div>
-                        <Popover>
-                          <PopoverTrigger asChild>
-                            <FormControl>
-                              <Button
-                                type="button"
-                                size="sm"
-                                variant="outline"
-                                className="shrink-0 gap-1.5"
-                              >
-                                <CalendarOff className="size-4" />
-                                {field.value.length > 0
-                                  ? `${field.value.length} ${field.value.length === 1 ? "dia" : "dias"}`
-                                  : "Escolher dias"}
-                              </Button>
-                            </FormControl>
-                          </PopoverTrigger>
-                          <PopoverContent align="end" className="w-auto p-0">
-                            <Calendar
-                              mode="multiple"
-                              selected={datasSelecionadas}
-                              onSelect={alternarDias}
-                              disabled={{ before: new Date() }}
-                            />
-                          </PopoverContent>
-                        </Popover>
+                        <FormControl>
+                          <Switch checked={field.value} onCheckedChange={field.onChange} />
+                        </FormControl>
                       </div>
-                      {field.value.length > 0 && (
-                        <div className="flex flex-wrap gap-1.5">
-                          {[...field.value].sort().map((iso) => (
-                            <Badge
-                              key={iso}
-                              variant="secondary"
-                              className="gap-1 py-1 pl-2.5 pr-1.5 font-medium"
-                            >
-                              {fmtDiaFolga.format(dataDoIso(iso))}
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  field.onChange(field.value.filter((d) => d !== iso))
-                                }
-                                aria-label={`Remover dia de folga ${fmtDiaFolga.format(dataDoIso(iso))}`}
-                                className="rounded-full p-0.5 hover:bg-foreground/10"
-                              >
-                                <X className="size-3" />
-                              </button>
-                            </Badge>
-                          ))}
-                        </div>
+                      {field.value && (
+                        <FormField
+                          control={form.control}
+                          name="reabreIntervaloMin"
+                          render={({ field: intervalo }) => (
+                            <FormItem className="flex flex-row items-center gap-2">
+                              <FormLabel className="text-xs font-normal text-muted-foreground">
+                                Reabrir a cada
+                              </FormLabel>
+                              <FormControl>
+                                <Input
+                                  type="number"
+                                  min={1}
+                                  max={1440}
+                                  inputMode="numeric"
+                                  className="w-20 text-center"
+                                  value={intervalo.value}
+                                  onChange={(e) => intervalo.onChange(Number(e.target.value) || 0)}
+                                  onBlur={intervalo.onBlur}
+                                  name={intervalo.name}
+                                  ref={intervalo.ref}
+                                />
+                              </FormControl>
+                              <span className="text-xs text-muted-foreground">minutos</span>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
                       )}
-                      <FormMessage />
                     </FormItem>
-                  );
-                }}
-              />
-            </div>
-
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <Label>Itens da checklist</Label>
-                <Button type="button" size="sm" variant="outline" onClick={() => append(itemVazio)}>
-                  <Plus className="size-4" /> Adicionar item
-                </Button>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="diasPausados"
+                  render={({ field }) => {
+                    const datasSelecionadas = field.value.map((iso) => dataDoIso(iso));
+                    function alternarDias(dias: Date[] | undefined) {
+                      field.onChange((dias ?? []).map((d) => isoDoDia(d)).sort());
+                    }
+                    return (
+                      <FormItem className="rounded-xl border border-border p-3 sm:col-span-2">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div className="space-y-0.5">
+                            <FormLabel>Dias de folga desta rotina</FormLabel>
+                            <p className="text-xs text-muted-foreground">
+                              Nesses dias a rotina não roda nem é cobrada — pense num dia de folga
+                              do responsável.
+                            </p>
+                          </div>
+                          <Popover>
+                            <PopoverTrigger asChild>
+                              <FormControl>
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="outline"
+                                  className="shrink-0 gap-1.5"
+                                >
+                                  <CalendarOff className="size-4" />
+                                  {field.value.length > 0
+                                    ? `${field.value.length} ${field.value.length === 1 ? "dia" : "dias"}`
+                                    : "Escolher dias"}
+                                </Button>
+                              </FormControl>
+                            </PopoverTrigger>
+                            <PopoverContent align="end" className="w-auto p-0">
+                              <Calendar
+                                mode="multiple"
+                                selected={datasSelecionadas}
+                                onSelect={alternarDias}
+                                // Meia-noite local, não "agora": comparar com a hora atual
+                                // faria o dia de hoje contar como "antes" e ficar bloqueado
+                                // assim que passasse da meia-noite (mesmo padrão usado em
+                                // PersonalizarRotinas, em src/routes/index.tsx).
+                                disabled={{ before: dataDoIso(isoDoDia(new Date())) }}
+                              />
+                            </PopoverContent>
+                          </Popover>
+                        </div>
+                        {field.value.length > 0 && (
+                          <div className="flex flex-wrap gap-1.5">
+                            {[...field.value].sort().map((iso) => (
+                              <Badge
+                                key={iso}
+                                variant="secondary"
+                                className="gap-1 py-1 pl-2.5 pr-1.5 font-medium"
+                              >
+                                {fmtDiaFolga.format(dataDoIso(iso))}
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    field.onChange(field.value.filter((d) => d !== iso))
+                                  }
+                                  aria-label={`Remover dia de folga ${fmtDiaFolga.format(dataDoIso(iso))}`}
+                                  className="rounded-full p-0.5 hover:bg-foreground/10"
+                                >
+                                  <X className="size-3" />
+                                </button>
+                              </Badge>
+                            ))}
+                          </div>
+                        )}
+                        <FormMessage />
+                      </FormItem>
+                    );
+                  }}
+                />
               </div>
 
-              {form.formState.errors.itens?.message && (
-                <p className="text-[0.8rem] font-medium text-destructive">
-                  {form.formState.errors.itens.message}
-                </p>
-              )}
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <Label>Itens da checklist</Label>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={() => append(itemVazio)}
+                  >
+                    <Plus className="size-4" /> Adicionar item
+                  </Button>
+                </div>
 
-              <div className="space-y-4">
-                {fields.map((f, index) => (
-                  <div key={f.id} className="space-y-3 rounded-xl border border-border p-3">
-                    <div className="flex items-start justify-between gap-2">
-                      <p className="text-xs font-medium text-muted-foreground">Item {index + 1}</p>
-                      <Button
-                        type="button"
-                        size="icon"
-                        variant="ghost"
-                        className="size-6 text-muted-foreground hover:text-destructive"
-                        onClick={() => remove(index)}
-                        disabled={fields.length === 1}
-                        aria-label={`Remover item ${index + 1}`}
-                      >
-                        <Trash2 className="size-3.5" />
-                      </Button>
-                    </div>
-                    <FormField
-                      control={form.control}
-                      name={`itens.${index}.titulo`}
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Título</FormLabel>
-                          <FormControl>
-                            <Input placeholder="Ex.: Conferir contagem de estoque" {...field} />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                    <FormField
-                      control={form.control}
-                      name={`itens.${index}.detalhe`}
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Detalhe (opcional)</FormLabel>
-                          <FormControl>
-                            <Textarea rows={2} placeholder="Instruções adicionais" {...field} />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                    <FormField
-                      control={form.control}
-                      name={`itens.${index}.tipoTarefa`}
-                      render={({ field }) => {
-                        const tipo = field.value as TipoTarefa;
-                        return (
-                          <FormItem className="rounded-lg border border-border p-3">
-                            <FormLabel>Tipo da atividade</FormLabel>
-                            <FormControl>
-                              <div className="mt-1 inline-flex rounded-lg border border-input p-0.5">
-                                {tiposTarefa.map((t) => (
-                                  <button
-                                    key={t}
-                                    type="button"
-                                    onClick={() => field.onChange(t)}
-                                    aria-pressed={tipo === t}
-                                    className={cn(
-                                      "rounded-md px-3 py-1 text-xs font-medium capitalize transition-colors",
-                                      tipo === t
-                                        ? "bg-primary text-primary-foreground"
-                                        : "text-muted-foreground hover:text-foreground",
-                                    )}
-                                  >
-                                    {t === "checklist" ? "Checklist" : "Enquete"}
-                                  </button>
-                                ))}
-                              </div>
-                            </FormControl>
-                            <p className="text-xs text-muted-foreground">
-                              Checklist: marca feito/não feito. Enquete: o responsável escolhe
-                              uma opção e justifica.
-                            </p>
-                            {tipo === "enquete" && (
-                              <FormField
-                                control={form.control}
-                                name={`itens.${index}.respostaOpcoesTexto`}
-                                render={({ field: opc }) => (
-                                  <FormItem className="mt-2">
-                                    <FormLabel className="text-xs font-normal text-muted-foreground">
-                                      Opções de resposta (separe com “/”)
-                                    </FormLabel>
-                                    <FormControl>
-                                      <Input placeholder="SIM / NÃO" {...opc} />
-                                    </FormControl>
-                                    <div className="mt-1 flex flex-wrap gap-1.5">
-                                      {["SIM / NÃO", "PADRÃO / NÃO PADRÃO"].map((preset) => (
-                                        <button
-                                          key={preset}
-                                          type="button"
-                                          onClick={() => opc.onChange(preset)}
-                                          className="rounded-full border border-input px-2 py-0.5 text-xs text-muted-foreground hover:border-primary hover:text-foreground"
-                                        >
-                                          {preset}
-                                        </button>
-                                      ))}
-                                    </div>
-                                    <FormMessage />
-                                  </FormItem>
-                                )}
-                              />
-                            )}
-                          </FormItem>
-                        );
-                      }}
-                    />
-                    <div className="grid grid-cols-2 gap-3">
+                {form.formState.errors.itens?.message && (
+                  <p className="text-[0.8rem] font-medium text-destructive">
+                    {form.formState.errors.itens.message}
+                  </p>
+                )}
+
+                <div className="space-y-4">
+                  {fields.map((f, index) => (
+                    <div key={f.id} className="space-y-3 rounded-xl border border-border p-3">
+                      <div className="flex items-start justify-between gap-2">
+                        <p className="text-xs font-medium text-muted-foreground">
+                          Item {index + 1}
+                        </p>
+                        <Button
+                          type="button"
+                          size="icon"
+                          variant="ghost"
+                          className="size-6 text-muted-foreground hover:text-destructive"
+                          onClick={() => remove(index)}
+                          disabled={fields.length === 1}
+                          aria-label={`Remover item ${index + 1}`}
+                        >
+                          <Trash2 className="size-3.5" />
+                        </Button>
+                      </div>
                       <FormField
                         control={form.control}
-                        name={`itens.${index}.horarioInicio`}
+                        name={`itens.${index}.titulo`}
                         render={({ field }) => (
                           <FormItem>
-                            <FormLabel>Horário início</FormLabel>
+                            <FormLabel>Título</FormLabel>
                             <FormControl>
-                              <Input type="time" {...field} />
+                              <Input placeholder="Ex.: Conferir contagem de estoque" {...field} />
                             </FormControl>
                             <FormMessage />
                           </FormItem>
@@ -647,196 +587,282 @@ function ChecklistFormDialog({ checklist }: { checklist?: Checklist }) {
                       />
                       <FormField
                         control={form.control}
-                        name={`itens.${index}.horarioTermino`}
+                        name={`itens.${index}.detalhe`}
                         render={({ field }) => (
                           <FormItem>
-                            <FormLabel>Horário término</FormLabel>
+                            <FormLabel>Detalhe (opcional)</FormLabel>
                             <FormControl>
-                              <Input type="time" {...field} />
+                              <Textarea rows={2} placeholder="Instruções adicionais" {...field} />
                             </FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-                    </div>
-                    <div className="grid grid-cols-2 gap-3">
-                      <FormField
-                        control={form.control}
-                        name={`itens.${index}.minAnexos`}
-                        render={({ field }) => (
-                          <FormItem className="rounded-lg border border-border p-3">
-                            <FormLabel className="flex items-center gap-1.5">
-                              <Paperclip className="size-3.5" />
-                              Anexos mínimos
-                            </FormLabel>
-                            <FormControl>
-                              <Input
-                                type="number"
-                                min={0}
-                                max={50}
-                                inputMode="numeric"
-                                className="w-16 text-center"
-                                value={field.value}
-                                onChange={(e) => field.onChange(Number(e.target.value) || 0)}
-                                onBlur={field.onBlur}
-                                name={field.name}
-                                ref={field.ref}
-                              />
-                            </FormControl>
-                            <p className="text-xs text-muted-foreground">
-                              0 = opcional. Exige esse tanto para concluir.
-                            </p>
                             <FormMessage />
                           </FormItem>
                         )}
                       />
                       <FormField
                         control={form.control}
-                        name={`itens.${index}.maxAnexos`}
-                        render={({ field }) => (
-                          <FormItem className="rounded-lg border border-border p-3">
-                            <FormLabel className="flex items-center gap-1.5">
-                              <Paperclip className="size-3.5" />
-                              Anexos máximos
-                            </FormLabel>
-                            <FormControl>
-                              <Input
-                                type="number"
-                                min={0}
-                                max={50}
-                                inputMode="numeric"
-                                className="w-16 text-center"
-                                value={field.value}
-                                onChange={(e) => field.onChange(Number(e.target.value) || 0)}
-                                onBlur={field.onBlur}
-                                name={field.name}
-                                ref={field.ref}
-                              />
-                            </FormControl>
-                            <p className="text-xs text-muted-foreground">
-                              0 = sem limite. Não deixa enviar além desse total.
-                            </p>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-                    </div>
-                    <FormField
-                      control={form.control}
-                      name={`itens.${index}.recorrencia`}
-                      render={({ field }) => {
-                        const rec = field.value as Recorrencia;
-                        return (
-                          <FormItem className="rounded-lg border border-border p-3">
-                            <FormLabel className="flex items-center gap-1.5">
-                              <CalendarClock className="size-3.5" />
-                              Recorrência
-                            </FormLabel>
-                            <FormControl>
-                              <div className="mt-1 inline-flex rounded-lg border border-input p-0.5">
-                                {recorrencias.map((r) => (
-                                  <button
-                                    key={r}
-                                    type="button"
-                                    onClick={() => field.onChange(r)}
-                                    aria-pressed={rec === r}
-                                    className={cn(
-                                      "rounded-md px-3 py-1 text-xs font-medium capitalize transition-colors",
-                                      rec === r
-                                        ? "bg-primary text-primary-foreground"
-                                        : "text-muted-foreground hover:text-foreground",
-                                    )}
-                                  >
-                                    {r}
-                                  </button>
-                                ))}
-                              </div>
-                            </FormControl>
-
-                            {rec === "semanal" ? (
-                              <FormField
-                                control={form.control}
-                                name={`itens.${index}.diasSemana`}
-                                render={({ field: dias }) => (
-                                  <FormItem className="mt-2">
-                                    <FormControl>
-                                      <div className="flex flex-wrap gap-2">
-                                        {diasDaSemana.map((dia) => {
-                                          const on = dias.value.includes(dia.valor);
-                                          return (
-                                            <button
-                                              key={dia.valor}
-                                              type="button"
-                                              onClick={() =>
-                                                dias.onChange(
-                                                  on
-                                                    ? dias.value.filter(
-                                                        (v: number) => v !== dia.valor,
-                                                      )
-                                                    : [...dias.value, dia.valor].sort(
-                                                        (a, b) => a - b,
-                                                      ),
-                                                )
-                                              }
-                                              aria-pressed={on}
-                                              aria-label={dia.nome}
-                                              title={dia.nome}
-                                              className={cn(
-                                                "flex size-9 items-center justify-center rounded-full border text-sm font-medium transition-colors",
-                                                on
-                                                  ? "border-primary bg-primary text-primary-foreground"
-                                                  : "border-input text-muted-foreground hover:border-primary hover:text-foreground",
-                                              )}
-                                            >
-                                              {dia.inicial}
-                                            </button>
-                                          );
-                                        })}
+                        name={`itens.${index}.tipoTarefa`}
+                        render={({ field }) => {
+                          const tipo = field.value as TipoTarefa;
+                          return (
+                            <FormItem className="rounded-lg border border-border p-3">
+                              <FormLabel>Tipo da atividade</FormLabel>
+                              <FormControl>
+                                <div className="mt-1 inline-flex rounded-lg border border-input p-0.5">
+                                  {tiposTarefa.map((t) => (
+                                    <button
+                                      key={t}
+                                      type="button"
+                                      onClick={() => field.onChange(t)}
+                                      aria-pressed={tipo === t}
+                                      className={cn(
+                                        "rounded-md px-3 py-1 text-xs font-medium capitalize transition-colors",
+                                        tipo === t
+                                          ? "bg-primary text-primary-foreground"
+                                          : "text-muted-foreground hover:text-foreground",
+                                      )}
+                                    >
+                                      {t === "checklist" ? "Checklist" : "Enquete"}
+                                    </button>
+                                  ))}
+                                </div>
+                              </FormControl>
+                              <p className="text-xs text-muted-foreground">
+                                Checklist: marca feito/não feito. Enquete: o responsável escolhe uma
+                                opção e justifica.
+                              </p>
+                              {tipo === "enquete" && (
+                                <FormField
+                                  control={form.control}
+                                  name={`itens.${index}.respostaOpcoesTexto`}
+                                  render={({ field: opc }) => (
+                                    <FormItem className="mt-2">
+                                      <FormLabel className="text-xs font-normal text-muted-foreground">
+                                        Opções de resposta (separe com “/”)
+                                      </FormLabel>
+                                      <FormControl>
+                                        <Input placeholder="SIM / NÃO" {...opc} />
+                                      </FormControl>
+                                      <div className="mt-1 flex flex-wrap gap-1.5">
+                                        {["SIM / NÃO", "PADRÃO / NÃO PADRÃO"].map((preset) => (
+                                          <button
+                                            key={preset}
+                                            type="button"
+                                            onClick={() => opc.onChange(preset)}
+                                            className="rounded-full border border-input px-2 py-0.5 text-xs text-muted-foreground hover:border-primary hover:text-foreground"
+                                          >
+                                            {preset}
+                                          </button>
+                                        ))}
                                       </div>
-                                    </FormControl>
-                                    <FormMessage />
-                                  </FormItem>
-                                )}
-                              />
-                            ) : (
-                              <FormField
-                                control={form.control}
-                                name={`itens.${index}.inicio`}
-                                render={({ field: ini }) => (
-                                  <FormItem className="mt-2">
-                                    <FormLabel className="text-xs font-normal text-muted-foreground">
-                                      Começa em
-                                    </FormLabel>
-                                    <FormControl>
-                                      <Input type="date" className="w-44" {...ini} />
-                                    </FormControl>
-                                    <p className="text-xs text-muted-foreground">
-                                      {rec === "quinzenal"
-                                        ? "Repete a cada 14 dias a partir desta data."
-                                        : "Repete todo mês neste dia (mês curto → último dia)."}
-                                    </p>
-                                    <FormMessage />
-                                  </FormItem>
-                                )}
-                              />
-                            )}
-                          </FormItem>
-                        );
-                      }}
-                    />
-                  </div>
-                ))}
-              </div>
-            </div>
+                                      <FormMessage />
+                                    </FormItem>
+                                  )}
+                                />
+                              )}
+                            </FormItem>
+                          );
+                        }}
+                      />
+                      <div className="grid grid-cols-2 gap-3">
+                        <FormField
+                          control={form.control}
+                          name={`itens.${index}.horarioInicio`}
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Horário início</FormLabel>
+                              <FormControl>
+                                <Input type="time" {...field} />
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                        <FormField
+                          control={form.control}
+                          name={`itens.${index}.horarioTermino`}
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Horário término</FormLabel>
+                              <FormControl>
+                                <Input type="time" {...field} />
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                      </div>
+                      <div className="grid grid-cols-2 gap-3">
+                        <FormField
+                          control={form.control}
+                          name={`itens.${index}.minAnexos`}
+                          render={({ field }) => (
+                            <FormItem className="rounded-lg border border-border p-3">
+                              <FormLabel className="flex items-center gap-1.5">
+                                <Paperclip className="size-3.5" />
+                                Anexos mínimos
+                              </FormLabel>
+                              <FormControl>
+                                <Input
+                                  type="number"
+                                  min={0}
+                                  max={50}
+                                  inputMode="numeric"
+                                  className="w-16 text-center"
+                                  value={field.value}
+                                  onChange={(e) => field.onChange(Number(e.target.value) || 0)}
+                                  onBlur={field.onBlur}
+                                  name={field.name}
+                                  ref={field.ref}
+                                />
+                              </FormControl>
+                              <p className="text-xs text-muted-foreground">
+                                0 = opcional. Exige esse tanto para concluir.
+                              </p>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                        <FormField
+                          control={form.control}
+                          name={`itens.${index}.maxAnexos`}
+                          render={({ field }) => (
+                            <FormItem className="rounded-lg border border-border p-3">
+                              <FormLabel className="flex items-center gap-1.5">
+                                <Paperclip className="size-3.5" />
+                                Anexos máximos
+                              </FormLabel>
+                              <FormControl>
+                                <Input
+                                  type="number"
+                                  min={0}
+                                  max={50}
+                                  inputMode="numeric"
+                                  className="w-16 text-center"
+                                  value={field.value}
+                                  onChange={(e) => field.onChange(Number(e.target.value) || 0)}
+                                  onBlur={field.onBlur}
+                                  name={field.name}
+                                  ref={field.ref}
+                                />
+                              </FormControl>
+                              <p className="text-xs text-muted-foreground">
+                                0 = sem limite. Não deixa enviar além desse total.
+                              </p>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                      </div>
+                      <FormField
+                        control={form.control}
+                        name={`itens.${index}.recorrencia`}
+                        render={({ field }) => {
+                          const rec = field.value as Recorrencia;
+                          return (
+                            <FormItem className="rounded-lg border border-border p-3">
+                              <FormLabel className="flex items-center gap-1.5">
+                                <CalendarClock className="size-3.5" />
+                                Recorrência
+                              </FormLabel>
+                              <FormControl>
+                                <div className="mt-1 inline-flex rounded-lg border border-input p-0.5">
+                                  {recorrencias.map((r) => (
+                                    <button
+                                      key={r}
+                                      type="button"
+                                      onClick={() => field.onChange(r)}
+                                      aria-pressed={rec === r}
+                                      className={cn(
+                                        "rounded-md px-3 py-1 text-xs font-medium capitalize transition-colors",
+                                        rec === r
+                                          ? "bg-primary text-primary-foreground"
+                                          : "text-muted-foreground hover:text-foreground",
+                                      )}
+                                    >
+                                      {r}
+                                    </button>
+                                  ))}
+                                </div>
+                              </FormControl>
 
-            <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
-                Cancelar
-              </Button>
-              <Button type="submit">{editando ? "Salvar alterações" : "Criar checklist"}</Button>
-            </DialogFooter>
-          </form>
-        </Form>
+                              {rec === "semanal" ? (
+                                <FormField
+                                  control={form.control}
+                                  name={`itens.${index}.diasSemana`}
+                                  render={({ field: dias }) => (
+                                    <FormItem className="mt-2">
+                                      <FormControl>
+                                        <div className="flex flex-wrap gap-2">
+                                          {diasDaSemana.map((dia) => {
+                                            const on = dias.value.includes(dia.valor);
+                                            return (
+                                              <button
+                                                key={dia.valor}
+                                                type="button"
+                                                onClick={() =>
+                                                  dias.onChange(
+                                                    on
+                                                      ? dias.value.filter(
+                                                          (v: number) => v !== dia.valor,
+                                                        )
+                                                      : [...dias.value, dia.valor].sort(
+                                                          (a, b) => a - b,
+                                                        ),
+                                                  )
+                                                }
+                                                aria-pressed={on}
+                                                aria-label={dia.nome}
+                                                title={dia.nome}
+                                                className={cn(
+                                                  "flex size-9 items-center justify-center rounded-full border text-sm font-medium transition-colors",
+                                                  on
+                                                    ? "border-primary bg-primary text-primary-foreground"
+                                                    : "border-input text-muted-foreground hover:border-primary hover:text-foreground",
+                                                )}
+                                              >
+                                                {dia.inicial}
+                                              </button>
+                                            );
+                                          })}
+                                        </div>
+                                      </FormControl>
+                                      <FormMessage />
+                                    </FormItem>
+                                  )}
+                                />
+                              ) : (
+                                <FormField
+                                  control={form.control}
+                                  name={`itens.${index}.inicio`}
+                                  render={({ field: ini }) => (
+                                    <FormItem className="mt-2">
+                                      <FormLabel className="text-xs font-normal text-muted-foreground">
+                                        Começa em
+                                      </FormLabel>
+                                      <FormControl>
+                                        <Input type="date" className="w-44" {...ini} />
+                                      </FormControl>
+                                      <p className="text-xs text-muted-foreground">
+                                        {rec === "quinzenal"
+                                          ? "Repete a cada 14 dias a partir desta data."
+                                          : "Repete todo mês neste dia (mês curto → último dia)."}
+                                      </p>
+                                      <FormMessage />
+                                    </FormItem>
+                                  )}
+                                />
+                              )}
+                            </FormItem>
+                          );
+                        }}
+                      />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </form>
+          </Form>
+        </div>
       </DialogContent>
     </Dialog>
   );

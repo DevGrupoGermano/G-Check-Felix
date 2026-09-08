@@ -73,7 +73,9 @@ export function labelDiasSemana(dias: number[]): string {
 const fmtDataCurta = new Intl.DateTimeFormat("pt-BR", { day: "2-digit", month: "2-digit" });
 
 /** Rótulo da recorrência de uma atividade para exibir nas cards. */
-export function labelRecorrencia(item: Pick<ChecklistItem, "recorrencia" | "diasSemana" | "inicio">): string {
+export function labelRecorrencia(
+  item: Pick<ChecklistItem, "recorrencia" | "diasSemana" | "inicio">,
+): string {
   if (item.recorrencia === "semanal") return labelDiasSemana(item.diasSemana);
   if (!item.inicio) return item.recorrencia === "quinzenal" ? "Quinzenal" : "Mensal";
   const d = dataDoIso(item.inicio);
@@ -174,7 +176,9 @@ export interface ChecklistInput {
 }
 
 /** Turnos cobertos + faixa de horário de uma rotina, derivados dos itens. */
-export function descricaoAgenda(itens: Pick<ChecklistItem, "turno" | "horarioInicio" | "horarioTermino">[]) {
+export function descricaoAgenda(
+  itens: Pick<ChecklistItem, "turno" | "horarioInicio" | "horarioTermino">[],
+) {
   const inicios = itens
     .map((i) => i.horarioInicio)
     .filter((v): v is string => !!v)
@@ -289,9 +293,7 @@ async function fetchChecklists(): Promise<Checklist[]> {
         responsavel: row.responsavel,
         ativo: row.ativo,
         reabreAutomatico: row.reabre_automatico ?? false,
-        ...(row.reabre_intervalo_min
-          ? { reabreIntervaloMin: row.reabre_intervalo_min }
-          : {}),
+        ...(row.reabre_intervalo_min ? { reabreIntervaloMin: row.reabre_intervalo_min } : {}),
         ...descricaoAgenda(itens),
         ...(row.tempo_limite ? { tempoLimite: row.tempo_limite.slice(0, 5) } : {}),
         criadoEm: (row.created_at ?? "").slice(0, 10),
@@ -324,6 +326,8 @@ interface Ctx {
   criarChecklist: (input: ChecklistInput) => void;
   editarChecklist: (checklistId: string, input: ChecklistInput) => void;
   excluirChecklist: (checklistId: string) => void;
+  /** Remove uma data de "diasPausados" — reabre a rotina naquele dia específico. */
+  removerDiaPausado: (checklistId: string, iso: string) => void;
 }
 
 const GCheckContext = React.createContext<Ctx | null>(null);
@@ -507,9 +511,7 @@ export function GCheckProvider({ children }: { children: React.ReactNode }) {
         ?.itens.find((i) => i.id === itemId);
       const podeConcluir =
         !!atual && atual.status !== "concluido" && atual.anexos.length >= atual.minAnexos;
-      const patch = podeConcluir
-        ? { resposta, status: "concluido" as ItemStatus }
-        : { resposta };
+      const patch = podeConcluir ? { resposta, status: "concluido" as ItemStatus } : { resposta };
       aplicarPatchNoCache(checklistId, itemId, patch);
       patchItemMutation.mutate({ checklistId, itemId, patch });
     },
@@ -550,18 +552,14 @@ export function GCheckProvider({ children }: { children: React.ReactNode }) {
         (i) => i.status !== "concluido" && i.anexos.length < i.minAnexos,
       );
       if (pendentesSemAnexo && pendentesSemAnexo.length > 0) {
-        toast.error(
-          `Faltam anexos em: ${pendentesSemAnexo.map((i) => i.titulo).join(", ")}`,
-        );
+        toast.error(`Faltam anexos em: ${pendentesSemAnexo.map((i) => i.titulo).join(", ")}`);
         return;
       }
       const enquetesSemResposta = itens?.filter(
         (i) => i.status !== "concluido" && i.tipoTarefa === "enquete" && !i.resposta,
       );
       if (enquetesSemResposta && enquetesSemResposta.length > 0) {
-        toast.error(
-          `Falta responder: ${enquetesSemResposta.map((i) => i.titulo).join(", ")}`,
-        );
+        toast.error(`Falta responder: ${enquetesSemResposta.map((i) => i.titulo).join(", ")}`);
         return;
       }
 
@@ -647,7 +645,11 @@ export function GCheckProvider({ children }: { children: React.ReactNode }) {
         throw new Error(`Este item aceita no máximo ${item.maxAnexos} arquivo(s).`);
       }
       const ext =
-        arquivo.name.split(".").pop()?.toLowerCase().replace(/[^a-z0-9]/g, "") || "bin";
+        arquivo.name
+          .split(".")
+          .pop()
+          ?.toLowerCase()
+          .replace(/[^a-z0-9]/g, "") || "bin";
       const caminho = `${checklistId}/${itemId}-${Date.now()}-${Math.random()
         .toString(36)
         .slice(2, 8)}.${ext}`;
@@ -748,9 +750,7 @@ export function GCheckProvider({ children }: { children: React.ReactNode }) {
         ativo: input.ativo,
         tempo_limite: input.tempoLimite ?? null,
         reabre_automatico: input.reabreAutomatico,
-        reabre_intervalo_min: input.reabreAutomatico
-          ? (input.reabreIntervaloMin ?? null)
-          : null,
+        reabre_intervalo_min: input.reabreAutomatico ? (input.reabreIntervaloMin ?? null) : null,
         dias_pausados: input.diasPausados,
       });
       if (checklistError) throw checklistError;
@@ -791,9 +791,7 @@ export function GCheckProvider({ children }: { children: React.ReactNode }) {
       );
       const statusPorId = new Map((atual?.itens ?? []).map((i) => [i.id, i.status]));
       // Preserva os anexos já enviados hoje quando o item sobrevive à edição.
-      const anexosPorId = new Map(
-        (atual?.itens ?? []).map((i) => [i.id, i.anexos ?? []] as const),
-      );
+      const anexosPorId = new Map((atual?.itens ?? []).map((i) => [i.id, i.anexos ?? []] as const));
       const idsUsados = new Set<string>();
 
       // Reconciliação de itens: o form manda "itemId" para itens que já existiam
@@ -829,9 +827,7 @@ export function GCheckProvider({ children }: { children: React.ReactNode }) {
           ativo: input.ativo,
           tempo_limite: input.tempoLimite ?? null,
           reabre_automatico: input.reabreAutomatico,
-          reabre_intervalo_min: input.reabreAutomatico
-            ? (input.reabreIntervaloMin ?? null)
-            : null,
+          reabre_intervalo_min: input.reabreAutomatico ? (input.reabreIntervaloMin ?? null) : null,
           dias_pausados: input.diasPausados,
         })
         .eq("id", checklistId);
@@ -884,6 +880,40 @@ export function GCheckProvider({ children }: { children: React.ReactNode }) {
     [queryClient, excluirChecklistMutation],
   );
 
+  // Ação rápida no card bloqueado: tira só aquela data de diasPausados, sem
+  // precisar abrir o formulário de edição inteiro (que mexe também nos itens).
+  const removerDiaPausadoMutation = useMutation({
+    mutationFn: async ({ checklistId, iso }: { checklistId: string; iso: string }) => {
+      const atual = (queryClient.getQueryData<Checklist[]>(QUERY_KEY) ?? []).find(
+        (c) => c.id === checklistId,
+      );
+      const proximos = (atual?.diasPausados ?? []).filter((d) => d !== iso);
+      const { error } = await supabase
+        .from("checklists")
+        .update({ dias_pausados: proximos })
+        .eq("id", checklistId);
+      if (error) throw error;
+      return { checklistId, proximos };
+    },
+    onSuccess: ({ checklistId, proximos }) => {
+      queryClient.setQueryData<Checklist[]>(QUERY_KEY, (prev) =>
+        (prev ?? []).map((c) => (c.id === checklistId ? { ...c, diasPausados: proximos } : c)),
+      );
+      toast.success("Dia de folga removido — a rotina volta a valer normalmente.");
+    },
+    onError: () => {
+      toast.error("Não foi possível remover o dia de folga.");
+      queryClient.invalidateQueries({ queryKey: QUERY_KEY });
+    },
+  });
+
+  const removerDiaPausado = React.useCallback(
+    (checklistId: string, iso: string) => {
+      removerDiaPausadoMutation.mutate({ checklistId, iso });
+    },
+    [removerDiaPausadoMutation],
+  );
+
   const value = React.useMemo(
     () => ({
       checklists: query.data ?? [],
@@ -899,6 +929,7 @@ export function GCheckProvider({ children }: { children: React.ReactNode }) {
       criarChecklist,
       editarChecklist,
       excluirChecklist,
+      removerDiaPausado,
     }),
     [
       query.data,
@@ -914,6 +945,7 @@ export function GCheckProvider({ children }: { children: React.ReactNode }) {
       criarChecklist,
       editarChecklist,
       excluirChecklist,
+      removerDiaPausado,
     ],
   );
 
@@ -970,8 +1002,7 @@ function agregaTarefas(
       if (naData && !itemRodaNoDia(i, naData)) continue;
       const chave = chaveDoItem(i, c).trim();
       if (!chave) continue;
-      const atual =
-        mapa.get(chave) ?? { chave, total: 0, feitos: 0, pendentes: 0, atrasados: 0 };
+      const atual = mapa.get(chave) ?? { chave, total: 0, feitos: 0, pendentes: 0, atrasados: 0 };
       atual.total += 1;
       if (i.status === "concluido") {
         atual.feitos += 1;
@@ -1050,7 +1081,9 @@ function minutosDoDia(v: string | Date): number {
 }
 
 /** Horário limite efetivo da rotina: `tempoLimite` manual ou o último término dos itens. */
-export function limiteDaRotina(c: Pick<Checklist, "tempoLimite" | "horarioTermino">): string | undefined {
+export function limiteDaRotina(
+  c: Pick<Checklist, "tempoLimite" | "horarioTermino">,
+): string | undefined {
   return c.tempoLimite ?? c.horarioTermino;
 }
 
