@@ -25,6 +25,7 @@ import {
 import { AppShell } from "@/components/app-shell";
 import { EditarChecklistDialog, NovaChecklistDialog } from "@/components/checklist-form-dialog";
 import { CalendarioChecklists } from "@/components/calendario-checklists";
+import { CapturaCameraDialog } from "@/components/captura-camera";
 import { SeletorDia } from "@/components/seletor-dia";
 import {
   AlertDialog,
@@ -733,19 +734,13 @@ function AnexosItem({
   podeEditar: boolean;
 }) {
   const { anexarArquivo, removerAnexo } = useGCheck();
-  const inputFotoRef = React.useRef<HTMLInputElement>(null);
-  const inputVideoRef = React.useRef<HTMLInputElement>(null);
+  const [modoCaptura, setModoCaptura] = React.useState<"foto" | "video" | null>(null);
   const [enviando, setEnviando] = React.useState(false);
 
-  async function aoEscolher(ev: React.ChangeEvent<HTMLInputElement>) {
-    const arquivos = Array.from(ev.target.files ?? []);
-    ev.target.value = "";
-    if (arquivos.length === 0) return;
+  async function enviarArquivo(arquivo: File) {
     setEnviando(true);
     try {
-      for (const arquivo of arquivos) {
-        await anexarArquivo(checklistId, item.id, arquivo);
-      }
+      await anexarArquivo(checklistId, item.id, arquivo);
     } catch {
       /* erro já sinalizado por toast no store */
     } finally {
@@ -815,35 +810,18 @@ function AnexosItem({
 
           {podeEditar && (
             <>
-              {/* Um input por tipo de mídia: misturar image/*,video/* num
-                  input só faz vários celulares (sobretudo Android) não
-                  conseguirem decidir qual câmera abrir e caírem de volta na
-                  galeria. Separado + sem `multiple`, é o combo que os
-                  navegadores mobile realmente respeitam pra abrir a câmera
-                  direto, sem opção de galeria/arquivos. */}
-              <input
-                ref={inputFotoRef}
-                type="file"
-                accept="image/*"
-                capture="environment"
-                hidden
-                onChange={aoEscolher}
-              />
-              <input
-                ref={inputVideoRef}
-                type="file"
-                accept="video/*"
-                capture="environment"
-                hidden
-                onChange={aoEscolher}
-              />
+              {/* Captura direto na página (getUserMedia/MediaRecorder), sem
+                  abrir o app de câmera do celular: um `<input capture>` joga
+                  a aba pra segundo plano, e em celulares com pouca RAM (ou
+                  gravações mais longas) o sistema às vezes descarta a aba
+                  nesse meio tempo, perdendo o arquivo sem erro nenhum. */}
               <Button
                 type="button"
                 size="sm"
                 variant="outline"
                 className="h-7 gap-1.5 px-2 text-xs"
                 disabled={enviando}
-                onClick={() => inputFotoRef.current?.click()}
+                onClick={() => setModoCaptura("foto")}
               >
                 {enviando ? (
                   <Loader2 className="size-3.5 animate-spin" />
@@ -858,7 +836,7 @@ function AnexosItem({
                 variant="outline"
                 className="h-7 gap-1.5 px-2 text-xs"
                 disabled={enviando}
-                onClick={() => inputVideoRef.current?.click()}
+                onClick={() => setModoCaptura("video")}
               >
                 {enviando ? (
                   <Loader2 className="size-3.5 animate-spin" />
@@ -876,6 +854,17 @@ function AnexosItem({
                   <Loader2 className="size-3.5 animate-spin" />
                   Enviando, aguarde…
                 </span>
+              )}
+              {modoCaptura && (
+                <CapturaCameraDialog
+                  open
+                  modo={modoCaptura}
+                  onOpenChange={(v) => !v && setModoCaptura(null)}
+                  onCapturar={(arquivo) => {
+                    setModoCaptura(null);
+                    enviarArquivo(arquivo);
+                  }}
+                />
               )}
             </>
           )}
