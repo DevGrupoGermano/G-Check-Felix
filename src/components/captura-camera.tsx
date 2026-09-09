@@ -64,6 +64,19 @@ export function CapturaCameraDialog({
     streamRef.current = null;
   }, []);
 
+  // `.play()` explícito porque em vários celulares o atributo `autoPlay`
+  // sozinho não garante que o preview comece a tocar quando o `srcObject` é
+  // setado via JS — daí o preview ficar preto mesmo com o stream já vivo
+  // (a gravação em si não depende disso, ela lê direto do MediaStream).
+  function anexarStreamNoVideo(stream: MediaStream) {
+    const video = videoRef.current;
+    if (!video) return;
+    video.srcObject = stream;
+    video.play().catch(() => {
+      /* alguns navegadores rejeitam se o usuário já saiu da tela — sem problema */
+    });
+  }
+
   React.useEffect(() => {
     if (!open) return;
     let vivo = true;
@@ -81,7 +94,7 @@ export function CapturaCameraDialog({
           return;
         }
         streamRef.current = stream;
-        if (videoRef.current) videoRef.current.srcObject = stream;
+        anexarStreamNoVideo(stream);
         setEstado("pronta");
       })
       .catch((err: unknown) => {
@@ -186,7 +199,7 @@ export function CapturaCameraDialog({
       ?.getUserMedia({ video: { facingMode: { ideal: "environment" } }, audio: modo === "video" })
       .then((stream) => {
         streamRef.current = stream;
-        if (videoRef.current) videoRef.current.srcObject = stream;
+        anexarStreamNoVideo(stream);
         setEstado("pronta");
       })
       .catch((err: unknown) => {
@@ -213,15 +226,20 @@ export function CapturaCameraDialog({
           {estado === "erro" && (
             <p className="max-w-xs px-4 text-center text-sm text-white/90">{erro}</p>
           )}
-          {(estado === "pronta" || estado === "gravando") && (
-            <video
-              ref={videoRef}
-              autoPlay
-              playsInline
-              muted
-              className="max-h-[60vh] w-full object-contain"
-            />
-          )}
+          {/* Sempre montado (não condicional) — a ref precisa existir antes do
+              stream chegar, senão o srcObject nunca é anexado a um elemento
+              real e o preview fica preto mesmo com a câmera funcionando. */}
+          <video
+            ref={videoRef}
+            autoPlay
+            playsInline
+            muted
+            className={
+              estado === "pronta" || estado === "gravando"
+                ? "max-h-[60vh] w-full object-contain"
+                : "hidden"
+            }
+          />
           {estado === "revisando" &&
             capturado &&
             (modo === "foto" ? (
