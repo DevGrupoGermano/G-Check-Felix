@@ -74,6 +74,9 @@ export interface ChecklistItemRow {
   max_anexos: number | null;
   /** Anexos enviados no dia; limpos no rollover. */
   anexos: Anexo[];
+  /** Timestamptz de quando o item virou 'concluido' (carimbado por trigger no
+   *  banco); null enquanto pendente ou depois de reaberto. */
+  concluido_em: string | null;
   /** Modo de recorrência da atividade. */
   recorrencia: RecorrenciaRow;
   /** Dias da semana (0=domingo..6=sábado) — usado quando recorrencia = 'semanal'. */
@@ -116,6 +119,7 @@ export interface ChecklistExecucaoRow {
     min_anexos?: number;
     max_anexos?: number | null;
     anexos?: Anexo[];
+    concluido_em?: string | null;
   }[];
   registrado_em: string;
 }

@@ -68,11 +68,13 @@ import {
   labelRecorrencia,
   limiteDaRotina,
   progresso,
+  situacaoItem,
   turnos,
   turnoDoHorario,
   useGCheck,
   type Checklist,
   type ChecklistItem,
+  type SituacaoItem,
   type Turno,
 } from "@/lib/g-check-store";
 
@@ -97,10 +99,48 @@ const ESTADOS_VALIDOS: EstadoVista[] = [
   "desativada",
 ];
 
+/**
+ * Filtro por ATIVIDADE — separado do filtro de Estado (que é da rotina):
+ * quando ativo, não descarta a rotina inteira, só recorta a lista de itens
+ * dela pros que passam no critério (mesmo mecanismo do filtro de horário —
+ * ver `recortarHorario`). Hoje só tem uma opção; dá pra crescer aqui.
+ */
+export type FiltroTarefa = "concluida_atrasada";
+
+const FILTROS_TAREFA_VALIDOS: FiltroTarefa[] = ["concluida_atrasada"];
+
+const tarefaOptions: { id: FiltroTarefa; label: string }[] = [
+  { id: "concluida_atrasada", label: "Concluídas atrasadas" },
+];
+
+/** A atividade passa no filtro de tarefa selecionado (vazio = passa tudo)? */
+function passaFiltroTarefa(i: ChecklistItem, c: Checklist, filtros: FiltroTarefa[]): boolean {
+  if (filtros.length === 0) return true;
+  return filtros.some((f) => {
+    if (f === "concluida_atrasada") {
+      return i.status === "concluido" && situacaoItem(i, c) === "concluida_atrasada";
+    }
+    return false;
+  });
+}
+
 /** Minutos desde a meia-noite de um horário "HH:MM". */
 function minutosHHMM(hhmm: string): number {
   const [h, m] = hhmm.split(":").map(Number);
   return (h ?? 0) * 60 + (m ?? 0);
+}
+
+/**
+ * "Agora" a usar em `situacaoItem` conforme o dia em foco: dia passado — fim
+ * do dia (qualquer prazo já venceu, senão um item nunca concluído naquele dia
+ * ficaria "pendente" para sempre); dia futuro — início do dia (nada atrasa
+ * antes de começar); hoje — o relógio real, ao vivo.
+ */
+function agoraParaSituacao(dataFoco: Date): Date {
+  const cmp = isoDoDia(dataFoco).localeCompare(isoDoDia(new Date()));
+  if (cmp < 0) return new Date(dataFoco.getFullYear(), dataFoco.getMonth(), dataFoco.getDate(), 23, 59, 59);
+  if (cmp > 0) return new Date(dataFoco.getFullYear(), dataFoco.getMonth(), dataFoco.getDate(), 0, 0, 0);
+  return new Date();
 }
 
 /**
@@ -146,6 +186,23 @@ const ESTADO_VISTA_UI: Record<EstadoVista, { label: string; classe: string }> = 
 };
 
 /**
+ * Rótulo + classes do badge de situação de uma ATIVIDADE (item), pra revisão
+ * no dia seguinte. "concluida_atrasada" fica verde de propósito — a tarefa foi
+ * feita, então conta como concluída — só o rótulo/relógio avisam que passou
+ * do prazo dela.
+ */
+const SITUACAO_ITEM_UI: Record<SituacaoItem, { label: string; classe: string; atraso?: boolean }> = {
+  pendente: { label: "Pendente", classe: "bg-muted text-muted-foreground" },
+  atrasada: { label: "Atrasada", classe: "bg-destructive/15 text-destructive" },
+  concluida_no_prazo: { label: "Concluída", classe: "bg-success/15 text-success" },
+  concluida_atrasada: {
+    label: "Concluída atrasada",
+    classe: "bg-success/15 text-success",
+    atraso: true,
+  },
+};
+
+/**
  * Monta um `Checklist` somente-leitura a partir do snapshot de um dia já fechado
  * (`checklist_execucoes`). Sem `tempoLimite` de propósito: fora de hoje não faz
  * sentido derivar "atrasada" pelo relógio atual. O snapshot já traz só os itens
@@ -170,6 +227,7 @@ function checklistDeSnapshot(e: ChecklistExecucaoRow, vivo: Checklist | undefine
       minAnexos: it.min_anexos ?? 0,
       maxAnexos: it.max_anexos ?? null,
       anexos: it.anexos ?? [],
+      concluidoEm: it.concluido_em ?? null,
       recorrencia: "semanal" as const,
       diasSemana: [dowSnapshot],
       inicio: null,
@@ -200,6 +258,7 @@ function checklistPendente(c: Checklist): Checklist {
       status: "pendente" as const,
       resposta: null,
       justificativa: null,
+      concluidoEm: null,
     })),
   };
 }
@@ -211,6 +270,9 @@ function checklistPendente(c: Checklist): Checklist {
  */
 export interface ChecklistSearch {
   estados?: EstadoVista[] | undefined;
+  /** Filtro por atividade (ex.: concluídas atrasadas) — recorta os itens de
+   *  cada rotina, não descarta a rotina inteira. Ver `passaFiltroTarefa`. */
+  tarefas?: FiltroTarefa[] | undefined;
   turnos?: Turno[] | undefined;
   /**
    * Faixa de horário de início ("HH:MM"): mantém rotinas com ao menos um item
@@ -258,6 +320,7 @@ export const Route = createFileRoute("/checklists")({
   }),
   validateSearch: (search: Record<string, unknown>): ChecklistSearch => {
     const rawEstados = search["estados"];
+    const rawTarefas = search["tarefas"];
     const rawTurnos = search["turnos"];
     const rawHorarioDe = search["horarioDe"];
     const rawHorarioAte = search["horarioAte"];
@@ -269,6 +332,11 @@ export const Route = createFileRoute("/checklists")({
 
     const estados = Array.isArray(rawEstados)
       ? rawEstados.filter((e): e is EstadoVista => ESTADOS_VALIDOS.includes(e as EstadoVista))
+      : undefined;
+    const tarefasFiltro = Array.isArray(rawTarefas)
+      ? rawTarefas.filter((t): t is FiltroTarefa =>
+          FILTROS_TAREFA_VALIDOS.includes(t as FiltroTarefa),
+        )
       : undefined;
     const turnosSearch = Array.isArray(rawTurnos)
       ? rawTurnos.filter((t): t is Turno => (turnos as readonly string[]).includes(t as string))
@@ -292,6 +360,7 @@ export const Route = createFileRoute("/checklists")({
 
     return {
       ...(estados && estados.length ? { estados } : {}),
+      ...(tarefasFiltro && tarefasFiltro.length ? { tarefas: tarefasFiltro } : {}),
       ...(turnosSearch && turnosSearch.length ? { turnos: turnosSearch } : {}),
       ...(horarioDe ? { horarioDe } : {}),
       ...(horarioAte ? { horarioAte } : {}),
@@ -325,6 +394,7 @@ const turnoOptions: { id: Turno; label: string }[] = turnos.map((t) => ({ id: t,
  */
 function FiltrosChecklist({
   estadosSelecionados,
+  tarefasSelecionadas,
   turnosSelecionados,
   horarioDe,
   horarioAte,
@@ -332,12 +402,14 @@ function FiltrosChecklist({
   horariosDisponiveis,
   funcionariosDisponiveis,
   onToggleEstado,
+  onToggleTarefa,
   onToggleTurno,
   onChangeHorario,
   onToggleFuncionario,
   onLimpar,
 }: {
   estadosSelecionados: EstadoVista[];
+  tarefasSelecionadas: FiltroTarefa[];
   turnosSelecionados: Turno[];
   horarioDe: string | undefined;
   horarioAte: string | undefined;
@@ -346,6 +418,7 @@ function FiltrosChecklist({
   horariosDisponiveis: string[];
   funcionariosDisponiveis: string[];
   onToggleEstado: (id: EstadoVista) => void;
+  onToggleTarefa: (id: FiltroTarefa) => void;
   onToggleTurno: (id: Turno) => void;
   onChangeHorario: (patch: { de?: string | undefined; ate?: string | undefined }) => void;
   onToggleFuncionario: (id: string) => void;
@@ -354,6 +427,7 @@ function FiltrosChecklist({
   const temHorario = !!horarioDe || !!horarioAte;
   const total =
     estadosSelecionados.length +
+    tarefasSelecionadas.length +
     turnosSelecionados.length +
     (temHorario ? 1 : 0) +
     funcionariosSelecionados.length;
@@ -399,6 +473,25 @@ function FiltrosChecklist({
                     <CommandItem
                       key={o.id}
                       onSelect={() => onToggleEstado(o.id)}
+                      className="justify-between"
+                    >
+                      {o.label}
+                      {ativo && <Check className="size-4 text-primary" />}
+                    </CommandItem>
+                  );
+                })}
+              </CommandGroup>
+              <CommandSeparator />
+              {/* Filtro por ATIVIDADE, não por rotina: em vez de esconder a
+                  rotina inteira, recorta pra só as atividades que batem
+                  (ver passaFiltroTarefa/recortarTarefa). */}
+              <CommandGroup heading="Tarefa">
+                {tarefaOptions.map((o) => {
+                  const ativo = tarefasSelecionadas.includes(o.id);
+                  return (
+                    <CommandItem
+                      key={o.id}
+                      onSelect={() => onToggleTarefa(o.id)}
                       className="justify-between"
                     >
                       {o.label}
@@ -507,6 +600,18 @@ function FiltrosChecklist({
           </button>
         </Badge>
       ))}
+      {tarefasSelecionadas.map((id) => (
+        <Badge key={id} variant="secondary" className="gap-1 py-1 pl-2.5 pr-1.5 font-medium">
+          {tarefaOptions.find((o) => o.id === id)?.label}
+          <button
+            onClick={() => onToggleTarefa(id)}
+            aria-label={`Remover filtro ${tarefaOptions.find((o) => o.id === id)?.label ?? id}`}
+            className="rounded-full p-0.5 hover:bg-foreground/10"
+          >
+            <X className="size-3" />
+          </button>
+        </Badge>
+      ))}
       {turnosSelecionados.map((t) => (
         <Badge key={t} variant="secondary" className="gap-1 py-1 pl-2.5 pr-1.5 font-medium">
           {t}
@@ -572,6 +677,35 @@ function EstadoBadge({
   return (
     <Badge variant="outline" className={cn("border-transparent font-medium", ui.classe)}>
       {ui.label}
+    </Badge>
+  );
+}
+
+/**
+ * Badge de situação de uma atividade (pendente/atrasada/concluída/concluída
+ * atrasada — ver `situacaoItem`). O relógio some quando a tarefa está em dia;
+ * aparece só pra marcar atraso (pendente vencida ou concluída fora do prazo).
+ */
+const fmtHoraConclusao = new Intl.DateTimeFormat("pt-BR", { hour: "2-digit", minute: "2-digit" });
+
+function SituacaoItemBadge({
+  item,
+  checklist,
+  agora,
+}: {
+  item: ChecklistItem;
+  checklist: Checklist;
+  agora?: Date;
+}) {
+  const ui = SITUACAO_ITEM_UI[situacaoItem(item, checklist, agora)];
+  const horaConclusao = item.status === "concluido" && item.concluidoEm
+    ? fmtHoraConclusao.format(new Date(item.concluidoEm))
+    : null;
+  return (
+    <Badge variant="outline" className={cn("gap-1 border-transparent font-medium", ui.classe)}>
+      {ui.atraso && <Clock className="size-3" />}
+      {ui.label}
+      {horaConclusao && <span className="font-normal opacity-80">· {horaConclusao}</span>}
     </Badge>
   );
 }
@@ -665,7 +799,7 @@ function EnqueteOpcoes({
             aria-pressed={ativo}
             onClick={() => podeEditar && responderEnquete(checklistId, item.id, opcao)}
             className={cn(
-              "rounded-full border px-3 py-1 text-xs font-medium transition-colors",
+              "whitespace-nowrap rounded-full border px-3 py-1 text-xs font-medium transition-colors",
               ativo
                 ? "border-primary bg-primary text-primary-foreground"
                 : "border-input text-muted-foreground hover:border-primary hover:text-foreground",
@@ -957,7 +1091,7 @@ function ChecklistCard({
           className="flex min-w-0 flex-1 flex-col gap-4 text-left disabled:cursor-not-allowed"
           aria-expanded={expandido}
         >
-          <div className="flex items-start justify-between gap-3">
+          <div className="flex flex-wrap items-start justify-between gap-3">
             <div className="min-w-0">
               <h2 className="text-base font-semibold tracking-tight">{c.nome}</h2>
               <p className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
@@ -1179,13 +1313,16 @@ function ChecklistCard({
                       <AnexosItem checklistId={c.id} item={i} podeEditar={podeMarcar && !feito} />
                     )}
                   </div>
+                  <div className="shrink-0">
+                    <SituacaoItemBadge item={i} checklist={c} agora={agoraParaSituacao(dataFoco)} />
+                  </div>
                   {i.tipoTarefa === "enquete" && (
                     <>
                       <EnqueteOpcoes
                         checklistId={c.id}
                         item={i}
                         podeEditar={podeMarcar && !feito}
-                        className="shrink-0 justify-end sm:max-w-[45%]"
+                        className="w-full justify-end sm:w-auto sm:shrink-0 sm:max-w-[45%]"
                       />
                       <JustificativaCampo
                         checklistId={c.id}
@@ -1381,10 +1518,10 @@ function TarefaRow({
         )}
       </div>
 
-      <div className="flex w-full shrink-0 items-center justify-between gap-3 pl-8 sm:w-auto sm:justify-end sm:pl-0">
-        <div className="flex flex-col items-start gap-0.5 text-xs text-muted-foreground sm:items-end">
+      <div className="flex w-full flex-wrap items-center justify-between gap-x-3 gap-y-1 pl-8 sm:w-auto sm:justify-end sm:pl-0">
+        <div className="flex shrink-0 flex-col items-start gap-0.5 text-xs text-muted-foreground sm:items-end">
           {(i.horarioInicio || i.turno) && (
-            <span className="inline-flex items-center gap-1">
+            <span className="inline-flex items-center gap-1 whitespace-nowrap">
               <Clock className="size-3.5" />{" "}
               {[
                 i.turno,
@@ -1395,16 +1532,20 @@ function TarefaRow({
                 .join(" · ")}
             </span>
           )}
-          <span className="inline-flex items-center gap-1">
+          <span className="inline-flex items-center gap-1 whitespace-nowrap">
             <CalendarDays className="size-3.5" /> {fmtDataTarefa.format(data)}
           </span>
         </div>
-        <Badge
-          variant="outline"
-          className={cn("shrink-0 border-transparent font-medium", ESTADO_VISTA_UI[est].classe)}
-        >
-          {ESTADO_VISTA_UI[est].label}
-        </Badge>
+        {feito ? (
+          <SituacaoItemBadge item={i} checklist={c} agora={agoraParaSituacao(data)} />
+        ) : (
+          <Badge
+            variant="outline"
+            className={cn("shrink-0 border-transparent font-medium", ESTADO_VISTA_UI[est].classe)}
+          >
+            {ESTADO_VISTA_UI[est].label}
+          </Badge>
+        )}
       </div>
     </li>
   );
@@ -1462,6 +1603,7 @@ function ChecklistsPage() {
   const { hojeISO, hojeDesativado } = useHojeDesativado();
   const {
     estados,
+    tarefas: tarefasSearch,
     turnos: turnosSearch,
     horarioDe,
     horarioAte,
@@ -1499,6 +1641,7 @@ function ChecklistsPage() {
   });
 
   const estadosSelecionados = React.useMemo(() => estados ?? [], [estados]);
+  const tarefasSelecionadas = React.useMemo(() => tarefasSearch ?? [], [tarefasSearch]);
   const turnosSelecionados = React.useMemo(() => turnosSearch ?? [], [turnosSearch]);
   const funcionariosSelecionados = React.useMemo(
     () => funcionariosSearch ?? [],
@@ -1536,6 +1679,19 @@ function ChecklistsPage() {
           const atuais = prev.estados ?? [];
           const proximo = atuais.includes(id) ? atuais.filter((e) => e !== id) : [...atuais, id];
           return { ...prev, estados: proximo.length ? proximo : undefined };
+        },
+      });
+    },
+    [navigate],
+  );
+
+  const toggleTarefa = React.useCallback(
+    (id: FiltroTarefa) => {
+      navigate({
+        search: (prev) => {
+          const atuais = prev.tarefas ?? [];
+          const proximo = atuais.includes(id) ? atuais.filter((t) => t !== id) : [...atuais, id];
+          return { ...prev, tarefas: proximo.length ? proximo : undefined };
         },
       });
     },
@@ -1586,6 +1742,7 @@ function ChecklistsPage() {
       search: (prev) => ({
         ...prev,
         estados: undefined,
+        tarefas: undefined,
         turnos: undefined,
         horarioDe: undefined,
         horarioAte: undefined,
@@ -1740,10 +1897,24 @@ function ChecklistsPage() {
     return { ...c, itens, ...descricaoAgenda(itens) };
   };
 
+  // Filtro de Tarefa (ex.: "Concluídas atrasadas"): mesma ideia do de horário
+  // — não esconde a rotina, só recorta os itens dela pros que passam. A rotina
+  // continua na lista, só que mostrando apenas as atividades filtradas.
+  const temFiltroTarefa = tarefasSelecionadas.length > 0;
+  const recortarTarefa = (c: Checklist): Checklist => {
+    if (!temFiltroTarefa) return c;
+    const itens = c.itens.filter((i) => passaFiltroTarefa(i, c, tarefasSelecionadas));
+    return { ...c, itens, ...descricaoAgenda(itens) };
+  };
+
   const lista = checklistsDoDia
     .map(recortarHorario)
+    .map(recortarTarefa)
     .filter((c) => {
       if (temFiltroHorario && c.itens.length === 0 && !checklistPausadaNoDia(c, dataAlvo)) {
+        return false;
+      }
+      if (temFiltroTarefa && c.itens.length === 0 && !checklistPausadaNoDia(c, dataAlvo)) {
         return false;
       }
       if (!passaTurno(c)) return false;
@@ -1780,6 +1951,7 @@ function ChecklistsPage() {
                 return !t || turnosSelecionados.includes(t as Turno);
               })
               .filter((i) => (!horarioDe && !horarioAte) || horarioNaFaixa(i.horarioInicio))
+              .filter((i) => passaFiltroTarefa(i, c, tarefasSelecionadas))
               .map((i) => ({ checklist: c, item: i, estado: estadoDaTarefa(c, i, ehHoje) })),
           )
           .filter((t) => estadosSelecionados.length === 0 || estadosSelecionados.includes(t.estado))
@@ -1792,6 +1964,7 @@ function ChecklistsPage() {
 
   const temFiltro =
     estadosSelecionados.length > 0 ||
+    tarefasSelecionadas.length > 0 ||
     turnosSelecionados.length > 0 ||
     !!horarioDe ||
     !!horarioAte ||
@@ -1862,6 +2035,7 @@ function ChecklistsPage() {
           <div className="flex flex-wrap items-center gap-2">
             <FiltrosChecklist
               estadosSelecionados={estadosSelecionados}
+              tarefasSelecionadas={tarefasSelecionadas}
               turnosSelecionados={turnosSelecionados}
               horarioDe={horarioDe}
               horarioAte={horarioAte}
@@ -1869,6 +2043,7 @@ function ChecklistsPage() {
               horariosDisponiveis={horariosDisponiveis}
               funcionariosDisponiveis={funcionariosDisponiveis}
               onToggleEstado={toggleEstado}
+              onToggleTarefa={toggleTarefa}
               onToggleTurno={toggleTurno}
               onChangeHorario={mudarHorario}
               onToggleFuncionario={toggleFuncionario}

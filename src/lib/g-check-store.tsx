@@ -108,6 +108,10 @@ export interface ChecklistItem {
   maxAnexos: number | null;
   /** Anexos enviados hoje (foto, vídeo ou documento); limpos no rollover diário. */
   anexos: Anexo[];
+  /** Quando o item virou "concluido" (carimbado pelo banco); null se pendente
+   *  ou reaberto. Usada só pra saber se a conclusão veio depois do prazo —
+   *  ver `situacaoItem`. */
+  concluidoEm: string | null;
   /** Modo de recorrência da atividade. */
   recorrencia: Recorrencia;
   /** Índices de Date.getDay() (0 = domingo) — usados quando recorrencia = "semanal". */
@@ -307,6 +311,7 @@ async function fetchChecklists(): Promise<Checklist[]> {
         minAnexos: it.min_anexos ?? 0,
         maxAnexos: it.max_anexos ?? null,
         anexos: it.anexos ?? [],
+        concluidoEm: it.concluido_em ?? null,
         recorrencia: (it.recorrencia ?? "semanal") as Recorrencia,
         diasSemana: [...(it.dias_semana ?? [])].sort((a, b) => a - b),
         inicio: it.inicio ?? null,
@@ -1117,6 +1122,45 @@ export function limiteDaRotina(
   c: Pick<Checklist, "tempoLimite" | "horarioTermino">,
 ): string | undefined {
   return c.tempoLimite ?? c.horarioTermino;
+}
+
+/**
+ * Prazo efetivo de UMA atividade: o horário dela mesma (término, ou início
+ * quando não tem término) — só na falta dos dois cai no horário limite da
+ * rotina inteira (`tempoLimite`/último término). Cada atividade pode ter seu
+ * próprio prazo dentro da mesma rotina.
+ */
+export function prazoDoItem(
+  i: Pick<ChecklistItem, "horarioInicio" | "horarioTermino">,
+  c: Pick<Checklist, "tempoLimite" | "horarioTermino">,
+): string | undefined {
+  return i.horarioTermino ?? i.horarioInicio ?? limiteDaRotina(c);
+}
+
+/**
+ * Situação de uma atividade para revisão (ex.: no dia seguinte, no
+ * histórico): além de feito/não feito, se passou do prazo dela — "atrasada"
+ * quando ainda pendente, ou "concluida_atrasada" quando foi concluída depois
+ * da hora (ainda conta como concluída, só fica marcada). Sem prazo definido
+ * (nem no item, nem na rotina), nunca atrasa — só pendente/concluída no prazo.
+ * `agora` é injetável para testes.
+ */
+export type SituacaoItem = "pendente" | "atrasada" | "concluida_no_prazo" | "concluida_atrasada";
+
+export function situacaoItem(
+  i: Pick<ChecklistItem, "status" | "horarioInicio" | "horarioTermino" | "concluidoEm">,
+  c: Pick<Checklist, "tempoLimite" | "horarioTermino">,
+  agora: Date = new Date(),
+): SituacaoItem {
+  const prazo = prazoDoItem(i, c);
+  if (i.status === "concluido") {
+    if (!prazo || !i.concluidoEm) return "concluida_no_prazo";
+    return minutosDoDia(new Date(i.concluidoEm)) > minutosDoDia(prazo)
+      ? "concluida_atrasada"
+      : "concluida_no_prazo";
+  }
+  if (!prazo) return "pendente";
+  return minutosDoDia(agora) > minutosDoDia(prazo) ? "atrasada" : "pendente";
 }
 
 /**
