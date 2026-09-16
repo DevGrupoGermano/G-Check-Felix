@@ -57,6 +57,7 @@ import { cn, dataDoIso, isoDoDia } from "@/lib/utils";
 import { useAuth } from "@/lib/auth-store";
 import type { ChecklistExecucaoRow } from "@/lib/supabase";
 import { fetchExecucoes, HISTORICO_QUERY_KEY } from "@/lib/historico";
+import { fetchNomesAdmin, NOMES_ADMIN_QUERY_KEY } from "@/lib/profiles";
 import { DIAS_DESATIVADOS_QUERY_KEY, reativarDia, useHojeDesativado } from "@/lib/dias-desativados";
 import {
   checklistPausadaNoDia,
@@ -85,19 +86,47 @@ import {
  *  - `pendente` — já está no horário, mas nenhum item foi feito (amarelo);
  *  - `em_andamento` — algum item já foi concluído, mas não todos (azul);
  *  - `atrasada` — passou do tempo limite sem concluir (vermelho);
- *  - `concluido` — todos os itens feitos (verde).
+ *  - `concluido` — todos os itens feitos (verde);
+ *  - `desativada` — de folga só neste dia (diasPausados), a rotina continua
+ *    ativa nos outros dias;
+ *  - `inativa` — a rotina inteira foi desativada no cadastro (`c.ativo ===
+ *    false`), então não faz sentido ela aparecer como pendente/atrasada/etc.
  */
 export type EstadoVista =
-  "nao_iniciada" | "pendente" | "em_andamento" | "atrasada" | "concluido" | "desativada";
+  | "nao_iniciada"
+  | "pendente"
+  | "em_andamento"
+  | "atrasada"
+  | "concluido"
+  | "desativada"
+  | "inativa";
 
-const ESTADOS_VALIDOS: EstadoVista[] = [
+/**
+ * "Ativada" não é um estado que uma rotina realmente assume — é um filtro
+ * agregado: passa qualquer rotina que não esteja `inativa` nem `desativada`
+ * (de folga hoje). Vive só no filtro (URL/UI), nunca é o retorno de
+ * `estadoVista`/`estadoVistaCard`.
+ */
+export type EstadoFiltro = EstadoVista | "ativada";
+
+const ESTADOS_VALIDOS: EstadoFiltro[] = [
   "nao_iniciada",
   "pendente",
   "em_andamento",
   "atrasada",
   "concluido",
   "desativada",
+  "inativa",
+  "ativada",
 ];
+
+/** A rotina passa no filtro de Estado selecionado (vazio = passa tudo)? */
+function passaFiltroEstado(estado: EstadoVista, selecionados: EstadoFiltro[]): boolean {
+  if (selecionados.length === 0) return true;
+  return selecionados.some((sel) =>
+    sel === "ativada" ? estado !== "inativa" && estado !== "desativada" : sel === estado,
+  );
+}
 
 /**
  * Filtro por ATIVIDADE — separado do filtro de Estado (que é da rotina):
@@ -145,10 +174,11 @@ function agoraParaSituacao(dataFoco: Date): Date {
 
 /**
  * Estado ao vivo de uma rotina de hoje. A ordem das checagens define a
- * prioridade: desativada (de folga) > concluída > atrasada > em andamento >
- * pendente/não iniciada.
+ * prioridade: inativa (desativada no cadastro) > desativada (de folga) >
+ * concluída > atrasada > em andamento > pendente/não iniciada.
  */
 function estadoVista(c: Checklist, agora: Date = new Date()): EstadoVista {
+  if (!c.ativo) return "inativa";
   if (checklistPausadaNoDia(c, agora)) return "desativada";
   const { feitos, total } = progresso(c);
   if (total > 0 && feitos === total) return "concluido";
@@ -168,11 +198,23 @@ function estadoVista(c: Checklist, agora: Date = new Date()): EstadoVista {
  * está de folga (diasPausados) naquele dia específico.
  */
 function estadoVistaCard(c: Checklist, ehHoje: boolean, dataFoco: Date = new Date()): EstadoVista {
+  if (!c.ativo) return "inativa";
   if (checklistPausadaNoDia(c, dataFoco)) return "desativada";
   if (ehHoje) return estadoVista(c);
   const { feitos, total } = progresso(c);
   if (total > 0 && feitos === total) return "concluido";
   return feitos > 0 ? "em_andamento" : "nao_iniciada";
+}
+
+/**
+ * Posição da rotina na lista quanto à atividade — usada só para ordenar:
+ * ativas primeiro (0), de folga só hoje depois (1), inativas no cadastro por
+ * último (2). Não mexe no filtro, só na ordem de exibição.
+ */
+function rankInatividade(c: Checklist, dataFoco: Date): 0 | 1 | 2 {
+  if (!c.ativo) return 2;
+  if (checklistPausadaNoDia(c, dataFoco)) return 1;
+  return 0;
 }
 
 /** Rótulo + classes do badge de cada estado da checklist. */
@@ -183,6 +225,7 @@ const ESTADO_VISTA_UI: Record<EstadoVista, { label: string; classe: string }> = 
   atrasada: { label: "Atrasada", classe: "bg-destructive/15 text-destructive" },
   concluido: { label: "Concluído", classe: "bg-success/15 text-success" },
   desativada: { label: "De folga", classe: "bg-destructive/15 text-destructive" },
+  inativa: { label: "Inativa", classe: "bg-muted text-muted-foreground" },
 };
 
 /**
@@ -269,7 +312,7 @@ function checklistPendente(c: Checklist): Checklist {
  * fica compartilhável/versionável pelo histórico do navegador.
  */
 export interface ChecklistSearch {
-  estados?: EstadoVista[] | undefined;
+  estados?: EstadoFiltro[] | undefined;
   /** Filtro por atividade (ex.: concluídas atrasadas) — recorta os itens de
    *  cada rotina, não descarta a rotina inteira. Ver `passaFiltroTarefa`. */
   tarefas?: FiltroTarefa[] | undefined;
@@ -331,7 +374,7 @@ export const Route = createFileRoute("/checklists")({
     const rawSecao = search["secao"];
 
     const estados = Array.isArray(rawEstados)
-      ? rawEstados.filter((e): e is EstadoVista => ESTADOS_VALIDOS.includes(e as EstadoVista))
+      ? rawEstados.filter((e): e is EstadoFiltro => ESTADOS_VALIDOS.includes(e as EstadoFiltro))
       : undefined;
     const tarefasFiltro = Array.isArray(rawTarefas)
       ? rawTarefas.filter((t): t is FiltroTarefa =>
@@ -374,13 +417,15 @@ export const Route = createFileRoute("/checklists")({
   component: ChecklistsPage,
 });
 
-const estadoOptions: { id: EstadoVista; label: string }[] = [
+const estadoOptions: { id: EstadoFiltro; label: string }[] = [
+  { id: "ativada", label: "Ativadas" },
   { id: "nao_iniciada", label: "Não iniciadas" },
   { id: "pendente", label: "Pendentes" },
   { id: "em_andamento", label: "Em andamento" },
   { id: "atrasada", label: "Atrasadas" },
   { id: "concluido", label: "Concluídos" },
-  { id: "desativada", label: "Desativadas" },
+  { id: "desativada", label: "De folga" },
+  { id: "inativa", label: "Inativas" },
 ];
 
 const turnoOptions: { id: Turno; label: string }[] = turnos.map((t) => ({ id: t, label: t }));
@@ -408,7 +453,7 @@ function FiltrosChecklist({
   onToggleFuncionario,
   onLimpar,
 }: {
-  estadosSelecionados: EstadoVista[];
+  estadosSelecionados: EstadoFiltro[];
   tarefasSelecionadas: FiltroTarefa[];
   turnosSelecionados: Turno[];
   horarioDe: string | undefined;
@@ -417,7 +462,7 @@ function FiltrosChecklist({
   /** Horários de início presentes nos itens — viram sugestões nos campos De/Até. */
   horariosDisponiveis: string[];
   funcionariosDisponiveis: string[];
-  onToggleEstado: (id: EstadoVista) => void;
+  onToggleEstado: (id: EstadoFiltro) => void;
   onToggleTarefa: (id: FiltroTarefa) => void;
   onToggleTurno: (id: Turno) => void;
   onChangeHorario: (patch: { de?: string | undefined; ate?: string | undefined }) => void;
@@ -1127,14 +1172,6 @@ function ChecklistCard({
               </p>
             </div>
             <div className="flex shrink-0 items-center gap-2">
-              {!c.ativo && (
-                <Badge
-                  variant="outline"
-                  className="border-transparent bg-muted text-muted-foreground"
-                >
-                  Inativa
-                </Badge>
-              )}
               {somenteLeitura && !bloqueado && (
                 <Badge
                   variant="outline"
@@ -1640,6 +1677,20 @@ function ChecklistsPage() {
     enabled: !!session && podeVerHistorico && ehPassado,
   });
 
+  // Nomes das contas admin — só pra personalizados com acesso amplo
+  // (consultar/marcar checklists dos demais), que não veem a tabela profiles
+  // inteira via RLS. Usado pra esconder rotinas cujo responsável é um admin
+  // (ver `minhasChecklists` abaixo). Admin não precisa: já vê tudo.
+  const nomesAdminQuery = useQuery({
+    queryKey: NOMES_ADMIN_QUERY_KEY,
+    queryFn: fetchNomesAdmin,
+    enabled: !!session && podeVerTodas && !isAdmin,
+  });
+  const nomesAdminSet = React.useMemo(
+    () => new Set((nomesAdminQuery.data ?? []).map((n) => n.trim().toLowerCase())),
+    [nomesAdminQuery.data],
+  );
+
   const estadosSelecionados = React.useMemo(() => estados ?? [], [estados]);
   const tarefasSelecionadas = React.useMemo(() => tarefasSearch ?? [], [tarefasSearch]);
   const turnosSelecionados = React.useMemo(() => turnosSearch ?? [], [turnosSearch]);
@@ -1673,7 +1724,7 @@ function ChecklistsPage() {
   }, [checklists]);
 
   const toggleEstado = React.useCallback(
-    (id: EstadoVista) => {
+    (id: EstadoFiltro) => {
       navigate({
         search: (prev) => {
           const atuais = prev.estados ?? [];
@@ -1796,8 +1847,13 @@ function ChecklistsPage() {
     );
   }
 
+  // Personalizado com acesso amplo (não-admin) não vê rotina cujo responsável
+  // é uma conta admin — mesmo enxergando "todas as rotinas". Admin sempre vê
+  // tudo, inclusive as de outros admins.
   const minhasChecklists = podeVerTodas
-    ? checklists
+    ? isAdmin
+      ? checklists
+      : checklists.filter((c) => !nomesAdminSet.has(c.responsavel.trim().toLowerCase()))
     : checklists.filter((c) => c.ativo && ehResponsavel(c, profile?.nome));
 
   if (vista === "calendario") {
@@ -1920,19 +1976,14 @@ function ChecklistsPage() {
       if (!passaTurno(c)) return false;
       if (!passaFuncionario(c)) return false;
       if (!ehHoje) {
-        return (
-          estadosSelecionados.length === 0 ||
-          estadosSelecionados.includes(estadoVistaCard(c, false, dataAlvo))
-        );
+        return passaFiltroEstado(estadoVistaCard(c, false, dataAlvo), estadosSelecionados);
       }
-      return estadosSelecionados.length === 0 || estadosSelecionados.includes(estadoVista(c));
+      return passaFiltroEstado(estadoVista(c), estadosSelecionados);
     })
-    // Rotinas de folga vão para o fim da lista — sort estável preserva a
-    // ordem (horário/nome) já aplicada entre as que não estão de folga.
-    .sort(
-      (a, b) =>
-        Number(checklistPausadaNoDia(a, dataAlvo)) - Number(checklistPausadaNoDia(b, dataAlvo)),
-    );
+    // Ativas primeiro; de folga hoje depois; inativas (desativadas no
+    // cadastro) por último. Sort estável preserva a ordem (horário/nome) já
+    // aplicada dentro de cada grupo.
+    .sort((a, b) => rankInatividade(a, dataAlvo) - rankInatividade(b, dataAlvo));
 
   // Funcionário comum (ou quem escolheu a aba "Minhas") não vê a rotina
   // inteira: percorre as rotinas de que é responsável (nas que passam pelos
@@ -1954,7 +2005,7 @@ function ChecklistsPage() {
               .filter((i) => passaFiltroTarefa(i, c, tarefasSelecionadas))
               .map((i) => ({ checklist: c, item: i, estado: estadoDaTarefa(c, i, ehHoje) })),
           )
-          .filter((t) => estadosSelecionados.length === 0 || estadosSelecionados.includes(t.estado))
+          .filter((t) => passaFiltroEstado(t.estado, estadosSelecionados))
           .sort(
             (a, b) =>
               (a.item.horarioInicio ?? a.checklist.horarioInicio ?? "99:99").localeCompare(
