@@ -1,6 +1,6 @@
 import * as React from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
   AlertCircle,
@@ -54,6 +54,7 @@ import {
   useDiasDesativados,
   useHojeDesativado,
 } from "@/lib/dias-desativados";
+import { fetchNomesAdmin, NOMES_ADMIN_QUERY_KEY } from "@/lib/profiles";
 import {
   checklistPausadaNoDia,
   ehResponsavel,
@@ -577,8 +578,8 @@ function PausaRotinasHoje({ hojeISO, desativado }: { hojeISO: string; desativado
 }
 
 function Dashboard() {
-  const { checklists, isLoading, isError } = useGCheck();
-  const { isAdmin, temAcesso, profile } = useAuth();
+  const { checklists: todasChecklists, isLoading, isError } = useGCheck();
+  const { session, isAdmin, temAcesso, profile } = useAuth();
   const { hojeISO, hojeDesativado } = useHojeDesativado();
   const { secao } = Route.useSearch();
   const navigate = Route.useNavigate();
@@ -588,6 +589,22 @@ function Dashboard() {
   // marcar item alheio dá pra ver a rotina inteira, não só a lista das suas).
   const podeVerTodas =
     isAdmin || temAcesso("consultar_checklists_outros") || temAcesso("marcar_checklists_outros");
+
+  // Nomes das contas admin — mesma regra de /checklists: personalizado com
+  // acesso amplo (não-admin) não vê rotina cujo responsável é um admin.
+  const nomesAdminQuery = useQuery({
+    queryKey: NOMES_ADMIN_QUERY_KEY,
+    queryFn: fetchNomesAdmin,
+    enabled: !!session && podeVerTodas && !isAdmin,
+  });
+  const nomesAdminSet = React.useMemo(
+    () => new Set((nomesAdminQuery.data ?? []).map((n) => n.trim().toLowerCase())),
+    [nomesAdminQuery.data],
+  );
+  const checklists =
+    podeVerTodas && !isAdmin
+      ? todasChecklists.filter((c) => !nomesAdminSet.has(c.responsavel.trim().toLowerCase()))
+      : todasChecklists;
   const podePausar = temAcesso("pausar_dias");
   // "Minhas" só existe pra quem também enxerga o resumo completo — troca o
   // dashboard pelo mesmo recorte que um funcionário comum vê (só as próprias
