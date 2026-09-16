@@ -862,7 +862,8 @@ function EnqueteOpcoes({
 /**
  * Barra de justificativa/observação de uma atividade "enquete": o responsável
  * explica o motivo da resposta — vale tanto para as positivas quanto para as
- * negativas. Grava no `onBlur` (sem botão extra).
+ * negativas. Grava no `onBlur` (sem botão extra). Obrigatória pra concluir a
+ * atividade — ver `justificativaPendente` em ChecklistCard/TarefaRow.
  */
 function JustificativaCampo({
   checklistId,
@@ -886,7 +887,7 @@ function JustificativaCampo({
       rows={2}
       value={texto}
       disabled={!podeEditar}
-      placeholder="Justificativa / observação (o motivo da resposta)"
+      placeholder="Justificativa / observação (o motivo da resposta) — obrigatória"
       onChange={(e) => setTexto(e.target.value)}
       onBlur={() => {
         if (texto !== (item.justificativa ?? "")) justificarItem(checklistId, item.id, texto);
@@ -1272,7 +1273,11 @@ function ChecklistCard({
               const anexosPendentes = i.anexos.length < i.minAnexos && !feito;
               // Enquete sem opção escolhida: idem, trava a conclusão.
               const respostaPendente = i.tipoTarefa === "enquete" && !i.resposta && !feito;
-              const travaConclusao = anexosPendentes || respostaPendente;
+              // Enquete sem justificativa preenchida: idem — a justificativa é
+              // obrigatória pra concluir.
+              const justificativaPendente =
+                i.tipoTarefa === "enquete" && !i.justificativa?.trim() && !feito;
+              const travaConclusao = anexosPendentes || respostaPendente || justificativaPendente;
               // Horário/turno definidos para a atividade (turno cai do horário
               // quando não foi escolhido à mão).
               const turnoItem = i.turno ?? turnoDoHorario(i.horarioInicio);
@@ -1298,9 +1303,11 @@ function ChecklistCard({
                               ? `Anexe os arquivos para concluir ${i.titulo}`
                               : respostaPendente
                                 ? `Escolha uma resposta para concluir ${i.titulo}`
-                                : feito
-                                  ? `Reabrir ${i.titulo}`
-                                  : `Concluir ${i.titulo}`
+                                : justificativaPendente
+                                  ? `Preencha a justificativa para concluir ${i.titulo}`
+                                  : feito
+                                    ? `Reabrir ${i.titulo}`
+                                    : `Concluir ${i.titulo}`
                     }
                     className={cn(
                       "mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-md border transition-colors",
@@ -1501,7 +1508,9 @@ function TarefaRow({
   // Tarefa que ainda não tem os anexos mínimos: bloqueia a conclusão até anexar.
   const anexosPendentes = i.anexos.length < i.minAnexos && !feito;
   const respostaPendente = i.tipoTarefa === "enquete" && !i.resposta && !feito;
-  const travaConclusao = anexosPendentes || respostaPendente;
+  // Enquete sem justificativa preenchida: idem — obrigatória pra concluir.
+  const justificativaPendente = i.tipoTarefa === "enquete" && !i.justificativa?.trim() && !feito;
+  const travaConclusao = anexosPendentes || respostaPendente || justificativaPendente;
   const travado = bloqueado || travaConclusao || (feito && !podeReabrir);
 
   return (
@@ -1520,7 +1529,9 @@ function TarefaRow({
                 ? `Anexe os arquivos para concluir ${i.titulo}`
                 : respostaPendente
                   ? `Escolha uma resposta para concluir ${i.titulo}`
-                  : `Concluir ${i.titulo}`
+                  : justificativaPendente
+                    ? `Preencha a justificativa para concluir ${i.titulo}`
+                    : `Concluir ${i.titulo}`
         }
         className={cn(
           "mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-md border transition-colors",

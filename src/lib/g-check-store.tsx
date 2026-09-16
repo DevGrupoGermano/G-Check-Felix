@@ -473,6 +473,17 @@ export function GCheckProvider({ children }: { children: React.ReactNode }) {
         toast.error("Escolha uma resposta para concluir esta enquete.");
         return;
       }
+      // Enquete: justificativa obrigatória antes de concluir (trigger no banco
+      // também barra — ver migration 20260916130000).
+      if (
+        atual &&
+        atual.status !== "concluido" &&
+        atual.tipoTarefa === "enquete" &&
+        !atual.justificativa?.trim()
+      ) {
+        toast.error("Preencha a justificativa para concluir esta enquete.");
+        return;
+      }
 
       let next: ItemStatus = "concluido";
       // Atualização otimista: aplica a mudança no cache do React Query antes da
@@ -533,14 +544,18 @@ export function GCheckProvider({ children }: { children: React.ReactNode }) {
   const responderEnquete = React.useCallback(
     (checklistId: string, itemId: string, resposta: string) => {
       // Enquete não depende do check manual: escolher a opção já conclui a
-      // tarefa, desde que os anexos mínimos (quando exigidos) já tenham sido
-      // enviados. Se ainda faltar anexo, só grava a resposta — a conclusão
-      // acontece no anexarArquivo, quando o último anexo obrigatório entra.
+      // tarefa, desde que os anexos mínimos (quando exigidos) e a justificativa
+      // (obrigatória) já estejam preenchidos. Se ainda faltar algum, só grava a
+      // resposta — a conclusão acontece no anexarArquivo/justificarItem, quando
+      // o que faltava entra.
       const atual = (queryClient.getQueryData<Checklist[]>(QUERY_KEY) ?? [])
         .find((c) => c.id === checklistId)
         ?.itens.find((i) => i.id === itemId);
       const podeConcluir =
-        !!atual && atual.status !== "concluido" && atual.anexos.length >= atual.minAnexos;
+        !!atual &&
+        atual.status !== "concluido" &&
+        atual.anexos.length >= atual.minAnexos &&
+        !!atual.justificativa?.trim();
       const patch = podeConcluir ? { resposta, status: "concluido" as ItemStatus } : { resposta };
       aplicarPatchNoCache(checklistId, itemId, patch);
       patchItemMutation.mutate({ checklistId, itemId, patch });
@@ -551,10 +566,25 @@ export function GCheckProvider({ children }: { children: React.ReactNode }) {
   const justificarItem = React.useCallback(
     (checklistId: string, itemId: string, texto: string) => {
       const valor = texto.trim() ? texto : null;
-      aplicarPatchNoCache(checklistId, itemId, { justificativa: valor });
-      patchItemMutation.mutate({ checklistId, itemId, patch: { justificativa: valor } });
+      // Espelha responderEnquete/anexarArquivo: se a justificativa é a última
+      // peça que faltava (resposta e anexos mínimos já ok), conclui junto.
+      const atual = (queryClient.getQueryData<Checklist[]>(QUERY_KEY) ?? [])
+        .find((c) => c.id === checklistId)
+        ?.itens.find((i) => i.id === itemId);
+      const podeConcluir =
+        !!atual &&
+        atual.status !== "concluido" &&
+        atual.tipoTarefa === "enquete" &&
+        !!atual.resposta &&
+        atual.anexos.length >= atual.minAnexos &&
+        !!valor?.trim();
+      const patch = podeConcluir
+        ? { justificativa: valor, status: "concluido" as ItemStatus }
+        : { justificativa: valor };
+      aplicarPatchNoCache(checklistId, itemId, patch);
+      patchItemMutation.mutate({ checklistId, itemId, patch });
     },
-    [aplicarPatchNoCache, patchItemMutation],
+    [aplicarPatchNoCache, patchItemMutation, queryClient],
   );
 
   const concluirTodosMutation = useMutation({
@@ -590,6 +620,15 @@ export function GCheckProvider({ children }: { children: React.ReactNode }) {
       );
       if (enquetesSemResposta && enquetesSemResposta.length > 0) {
         toast.error(`Falta responder: ${enquetesSemResposta.map((i) => i.titulo).join(", ")}`);
+        return;
+      }
+      const enquetesSemJustificativa = itens?.filter(
+        (i) => i.status !== "concluido" && i.tipoTarefa === "enquete" && !i.justificativa?.trim(),
+      );
+      if (enquetesSemJustificativa && enquetesSemJustificativa.length > 0) {
+        toast.error(
+          `Falta justificar: ${enquetesSemJustificativa.map((i) => i.titulo).join(", ")}`,
+        );
         return;
       }
 
@@ -707,12 +746,14 @@ export function GCheckProvider({ children }: { children: React.ReactNode }) {
 
       // Acrescenta ao array atual e regrava a lista inteira.
       const proximos = [...anexosDoItem(checklistId, itemId), novo];
-      // Enquete já respondida: o anexo que fecha o mínimo exigido conclui a
-      // tarefa junto — sem depender do checkbox (mesma regra do responderEnquete).
+      // Enquete já respondida e justificada: o anexo que fecha o mínimo exigido
+      // conclui a tarefa junto — sem depender do checkbox (mesma regra do
+      // responderEnquete/justificarItem).
       const concluiJunto =
         item?.tipoTarefa === "enquete" &&
         item.status !== "concluido" &&
         !!item.resposta &&
+        !!item.justificativa?.trim() &&
         proximos.length >= item.minAnexos;
       const { error: updateError } = await supabase
         .from("checklist_items")
