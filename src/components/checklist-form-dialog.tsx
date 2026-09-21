@@ -114,6 +114,7 @@ const checklistSchema = z
     nome: z.string().trim().min(1, "Informe o nome da checklist."),
     responsavel: z.string().trim().min(1, "Informe o responsável."),
     tempoLimite: z.string().trim(),
+    corteDia: z.string().trim(),
     ativo: z.boolean(),
     reabreAutomatico: z.boolean(),
     reabreIntervaloMin: z.coerce
@@ -156,6 +157,7 @@ function valoresPadrao(checklist?: Checklist): ChecklistFormValues {
       nome: "",
       responsavel: "",
       tempoLimite: "",
+      corteDia: "",
       ativo: true,
       reabreAutomatico: false,
       reabreIntervaloMin: 20,
@@ -167,6 +169,7 @@ function valoresPadrao(checklist?: Checklist): ChecklistFormValues {
     nome: checklist.nome,
     responsavel: checklist.responsavel,
     tempoLimite: checklist.tempoLimite ?? "",
+    corteDia: checklist.corteDia ?? "",
     ativo: checklist.ativo,
     reabreAutomatico: checklist.reabreAutomatico,
     reabreIntervaloMin: checklist.reabreIntervaloMin ?? 20,
@@ -207,14 +210,18 @@ function ChecklistFormDialog({ checklist }: { checklist?: Checklist }) {
   });
 
   // Agenda da rotina (turnos + faixa de horário) derivada das atividades — só
-  // descrição, nada é gravado na rotina.
+  // descrição, nada é gravado na rotina. Com "Horário de virada do dia"
+  // preenchido, considera que os horários antes do corte são a madrugada do
+  // turno que começou no dia anterior (fim), não o começo do dia.
   const itensObservados = form.watch("itens");
+  const corteDiaObservado = form.watch("corteDia");
   const agenda = descricaoAgenda(
     (itensObservados ?? []).map((i) => ({
       turno: turnoDoHorario(i?.horarioInicio || null),
       horarioInicio: i?.horarioInicio || null,
       horarioTermino: i?.horarioTermino || null,
     })),
+    corteDiaObservado?.trim() || undefined,
   );
 
   const { data: funcionarios = [] } = useQuery({
@@ -261,6 +268,7 @@ function ChecklistFormDialog({ checklist }: { checklist?: Checklist }) {
       reabreAutomatico: values.reabreAutomatico,
       ...(values.reabreAutomatico ? { reabreIntervaloMin: values.reabreIntervaloMin } : {}),
       ...(values.tempoLimite.trim() ? { tempoLimite: values.tempoLimite.trim() } : {}),
+      ...(values.corteDia.trim() ? { corteDia: values.corteDia.trim() } : {}),
       diasPausados: [...values.diasPausados].sort(),
       itens,
     };
@@ -453,6 +461,24 @@ function ChecklistFormDialog({ checklist }: { checklist?: Checklist }) {
                           )}
                         />
                       )}
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="corteDia"
+                  render={({ field }) => (
+                    <FormItem className="rounded-xl border border-border p-3 sm:col-span-2">
+                      <FormLabel>Horário de virada do dia (turno noturno)</FormLabel>
+                      <p className="text-xs text-muted-foreground">
+                        Preencha só se o turno atravessa a meia-noite (ex.: 23:00–06:00). Até esse
+                        horário, os itens ainda contam como do dia anterior — não resetam nem
+                        travam no meio do turno. Deixe em branco para o padrão (vira à meia-noite).
+                      </p>
+                      <FormControl>
+                        <Input type="time" className="w-40" {...field} />
+                      </FormControl>
+                      <FormMessage />
                     </FormItem>
                   )}
                 />

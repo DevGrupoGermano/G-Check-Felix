@@ -64,10 +64,12 @@ import {
   checklistRodaNoDia,
   checklistVigenteNoDia,
   descricaoAgenda,
+  diaOperacionalChecklist,
   ehResponsavel,
   itemRodaNoDia,
   labelRecorrencia,
   limiteDaRotina,
+  minutosNoCiclo,
   progresso,
   situacaoItem,
   turnos,
@@ -153,42 +155,56 @@ function passaFiltroTarefa(i: ChecklistItem, c: Checklist, filtros: FiltroTarefa
   });
 }
 
-/** Minutos desde a meia-noite de um horário "HH:MM". */
-function minutosHHMM(hhmm: string): number {
-  const [h, m] = hhmm.split(":").map(Number);
-  return (h ?? 0) * 60 + (m ?? 0);
-}
-
 /**
  * "Agora" a usar em `situacaoItem` conforme o dia em foco: dia passado — fim
- * do dia (qualquer prazo já venceu, senão um item nunca concluído naquele dia
- * ficaria "pendente" para sempre); dia futuro — início do dia (nada atrasa
- * antes de começar); hoje — o relógio real, ao vivo.
+ * do ciclo operacional daquele dia (qualquer prazo já venceu, senão um item
+ * nunca concluído naquele dia ficaria "pendente" para sempre); dia futuro —
+ * início do ciclo (nada atrasa antes de começar); hoje — o relógio real, ao
+ * vivo. Com `c.corteDia` (turno que atravessa a meia-noite), o ciclo do dia
+ * `dataFoco` só termina no corte do dia SEGUINTE (ex.: corte 08:00 → o dia
+ * "vira" às 07:59 de amanhã, não às 23:59 de hoje) — ver `minutosNoCiclo`.
  */
-function agoraParaSituacao(dataFoco: Date): Date {
+function agoraParaSituacao(dataFoco: Date, c: Pick<Checklist, "corteDia">): Date {
   const cmp = isoDoDia(dataFoco).localeCompare(isoDoDia(new Date()));
-  if (cmp < 0) return new Date(dataFoco.getFullYear(), dataFoco.getMonth(), dataFoco.getDate(), 23, 59, 59);
-  if (cmp > 0) return new Date(dataFoco.getFullYear(), dataFoco.getMonth(), dataFoco.getDate(), 0, 0, 0);
+  const [ch, cm] = (c.corteDia ?? "00:00").split(":").map(Number);
+  if (cmp < 0) {
+    const fim = new Date(dataFoco.getFullYear(), dataFoco.getMonth(), dataFoco.getDate());
+    if (c.corteDia) {
+      fim.setDate(fim.getDate() + 1);
+      fim.setHours(ch ?? 0, (cm ?? 0) - 1, 59, 999);
+    } else {
+      fim.setHours(23, 59, 59);
+    }
+    return fim;
+  }
+  if (cmp > 0) {
+    return new Date(dataFoco.getFullYear(), dataFoco.getMonth(), dataFoco.getDate(), ch ?? 0, cm ?? 0, 0);
+  }
   return new Date();
 }
 
 /**
  * Estado ao vivo de uma rotina de hoje. A ordem das checagens define a
  * prioridade: inativa (desativada no cadastro) > desativada (de folga) >
- * concluída > atrasada > em andamento > pendente/não iniciada.
+ * concluída > atrasada > em andamento > pendente/não iniciada. Compara no
+ * ciclo do `corteDia` (ver `minutosNoCiclo`) — sem isso, uma rotina noturna
+ * (início 20:00, término 07:30) nasceria "atrasada" assim que o turno
+ * começasse, porque 07:30 cru é "menor" que 20:00.
  */
 function estadoVista(c: Checklist, agora: Date = new Date()): EstadoVista {
   if (!c.ativo) return "inativa";
   if (checklistPausadaNoDia(c, agora)) return "desativada";
   const { feitos, total } = progresso(c);
   if (total > 0 && feitos === total) return "concluido";
-  const agoraMin = agora.getHours() * 60 + agora.getMinutes();
+  const agoraCiclo = minutosNoCiclo(agora, c.corteDia);
   const limite = limiteDaRotina(c);
-  if (limite && agoraMin > minutosHHMM(limite)) return "atrasada";
+  if (limite && agoraCiclo > minutosNoCiclo(limite, c.corteDia)) return "atrasada";
   if (feitos > 0) return "em_andamento";
   // Nada feito e dentro do prazo: "pendente" quando o horário de início dos
   // itens já chegou (ou não há horário); senão ainda está fora da janela.
-  return !c.horarioInicio || agoraMin >= minutosHHMM(c.horarioInicio) ? "pendente" : "nao_iniciada";
+  return !c.horarioInicio || agoraCiclo >= minutosNoCiclo(c.horarioInicio, c.corteDia)
+    ? "pendente"
+    : "nao_iniciada";
 }
 
 /**
@@ -283,7 +299,8 @@ function checklistDeSnapshot(e: ChecklistExecucaoRow, vivo: Checklist | undefine
     ativo: vivo?.ativo ?? true,
     reabreAutomatico: vivo?.reabreAutomatico ?? false,
     ...(vivo?.reabreIntervaloMin ? { reabreIntervaloMin: vivo.reabreIntervaloMin } : {}),
-    ...descricaoAgenda(itens),
+    ...descricaoAgenda(itens, vivo?.corteDia),
+    ...(vivo?.corteDia ? { corteDia: vivo.corteDia } : {}),
     criadoEm: vivo?.criadoEm ?? e.data,
     diasPausados: vivo?.diasPausados ?? [],
     itens,
@@ -1358,7 +1375,7 @@ function ChecklistCard({
                     )}
                   </div>
                   <div className="shrink-0">
-                    <SituacaoItemBadge item={i} checklist={c} agora={agoraParaSituacao(dataFoco)} />
+                    <SituacaoItemBadge item={i} checklist={c} agora={agoraParaSituacao(dataFoco, c)} />
                   </div>
                   {i.tipoTarefa === "enquete" && (
                     <>
@@ -1585,7 +1602,7 @@ function TarefaRow({
           </span>
         </div>
         {feito ? (
-          <SituacaoItemBadge item={i} checklist={c} agora={agoraParaSituacao(data)} />
+          <SituacaoItemBadge item={i} checklist={c} agora={agoraParaSituacao(data, c)} />
         ) : (
           <Badge
             variant="outline"
@@ -1889,12 +1906,17 @@ function ChecklistsPage() {
   // (semanal/quinzenal/mensal, por item) cai em `dataAlvo`. Rotina de folga
   // nesse dia (diasPausados) fica sem nenhum item, como se nada batesse a
   // recorrência. Rotina sem nenhuma atividade no dia é descartada mais abaixo.
-  const recortarDia = (c: Checklist): Checklist => ({
-    ...c,
-    itens: checklistPausadaNoDia(c, dataAlvo)
-      ? []
-      : c.itens.filter((i) => itemRodaNoDia(i, dataAlvo)),
-  });
+  // Em "hoje" (ao vivo), uma rotina com corteDia (turno que atravessa a
+  // meia-noite) ainda conta como o dia em que o turno começou até o corte
+  // passar — ver diaOperacionalChecklist. Num dia explicitamente escolhido
+  // (passado/futuro) o recorte continua sendo o dia calendário mesmo.
+  const recortarDia = (c: Checklist): Checklist => {
+    const dataRef = ehHoje ? diaOperacionalChecklist(c, dataAlvo) : dataAlvo;
+    return {
+      ...c,
+      itens: checklistPausadaNoDia(c, dataRef) ? [] : c.itens.filter((i) => itemRodaNoDia(i, dataRef)),
+    };
+  };
 
   // "?dia=quinzenal|mensal": mostra todas as rotinas, mas só com as atividades
   // daquela recorrência — visão transversal, sem recorte por dia.
@@ -1961,7 +1983,7 @@ function ChecklistsPage() {
     if (!temFiltroHorario) return c;
     const itens = c.itens.filter((i) => horarioNaFaixa(i.horarioInicio));
     // Recalcula turnos/faixa do cabeçalho a partir só das atividades que restaram.
-    return { ...c, itens, ...descricaoAgenda(itens) };
+    return { ...c, itens, ...descricaoAgenda(itens, c.corteDia) };
   };
 
   // Filtro de Tarefa (ex.: "Concluídas atrasadas"): mesma ideia do de horário
@@ -1971,7 +1993,7 @@ function ChecklistsPage() {
   const recortarTarefa = (c: Checklist): Checklist => {
     if (!temFiltroTarefa) return c;
     const itens = c.itens.filter((i) => passaFiltroTarefa(i, c, tarefasSelecionadas));
-    return { ...c, itens, ...descricaoAgenda(itens) };
+    return { ...c, itens, ...descricaoAgenda(itens, c.corteDia) };
   };
 
   const lista = checklistsDoDia
@@ -2017,12 +2039,16 @@ function ChecklistsPage() {
               .map((i) => ({ checklist: c, item: i, estado: estadoDaTarefa(c, i, ehHoje) })),
           )
           .filter((t) => passaFiltroEstado(t.estado, estadosSelecionados))
-          .sort(
-            (a, b) =>
-              (a.item.horarioInicio ?? a.checklist.horarioInicio ?? "99:99").localeCompare(
-                b.item.horarioInicio ?? b.checklist.horarioInicio ?? "99:99",
-              ) || a.item.titulo.localeCompare(b.item.titulo),
-          );
+          .sort((a, b) => {
+            // Ciclo do corte da própria rotina de cada tarefa (ver
+            // minutosNoCiclo) — senão uma tarefa de madrugada (ex.: 00:30)
+            // apareceria antes da que abre o turno à noite (ex.: 23:00).
+            const horaA = a.item.horarioInicio ?? a.checklist.horarioInicio;
+            const horaB = b.item.horarioInicio ?? b.checklist.horarioInicio;
+            const ma = horaA ? minutosNoCiclo(horaA, a.checklist.corteDia) : Infinity;
+            const mb = horaB ? minutosNoCiclo(horaB, b.checklist.corteDia) : Infinity;
+            return ma === mb ? a.item.titulo.localeCompare(b.item.titulo) : ma - mb;
+          });
 
   const temFiltro =
     estadosSelecionados.length > 0 ||

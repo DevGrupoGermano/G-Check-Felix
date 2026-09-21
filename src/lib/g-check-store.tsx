@@ -137,6 +137,10 @@ export interface Checklist {
   horarioTermino?: string;
   /** "HH:MM" — horário limite para concluir; passou dele e não terminou = "atrasada". */
   tempoLimite?: string;
+  /** "HH:MM" — hora em que o "dia" desta rotina vira, para turnos que atravessam a
+   *  meia-noite (ex.: 23:00-06:00). Ausente = vira à meia-noite (padrão). Ver
+   *  `diaOperacionalChecklist`. */
+  corteDia?: string;
   /** Data de criação da rotina ("yyyy-MM-dd"). Antes disso ela não existia — o
    *  calendário/histórico não devem projetá-la para dias anteriores. */
   criadoEm: string;
@@ -172,6 +176,8 @@ export interface ChecklistInput {
   ativo: boolean;
   /** "HH:MM" ou undefined. */
   tempoLimite?: string;
+  /** "HH:MM" ou undefined — ver `Checklist.corteDia`. */
+  corteDia?: string;
   reabreAutomatico: boolean;
   reabreIntervaloMin?: number;
   /** Datas "yyyy-MM-dd" em que a rotina está de folga. */
@@ -179,18 +185,51 @@ export interface ChecklistInput {
   itens: ItemInput[];
 }
 
-/** Turnos cobertos + faixa de horário de uma rotina, derivados dos itens. */
+/** Minutos desde a meia-noite de um "HH:MM". */
+function hhmmParaMinutos(hhmm: string): number {
+  const [h, m] = hhmm.split(":").map(Number);
+  return (h ?? 0) * 60 + (m ?? 0);
+}
+
+/**
+ * Turnos cobertos + faixa de horário (início–término) de uma rotina, derivados
+ * dos itens. Ordenar os "HH:MM" em texto (menor início, maior término) só
+ * funciona pra rotina que não passa da meia-noite — numa rotina que atravessa
+ * a virada (ex.: "SUB Gerente Noturno", 20:00 até 07:30 do dia seguinte) isso
+ * pegaria "00:30" (item já da madrugada) como início e algum horário da noite
+ * anterior como término, invertido.
+ *
+ * Com `corteDia` (mesmo horário de corte da rotina — ver `Checklist.corteDia`
+ * e a migration 20260921120000), os horários viram dois grupos: os que caem
+ * antes do corte são madrugada — cauda do turno que começou no dia anterior,
+ * contam pro TÉRMINO; os que caem no corte ou depois são o INÍCIO do turno.
+ * Sem `corteDia`, mantém o cálculo simples de sempre.
+ */
 export function descricaoAgenda(
   itens: Pick<ChecklistItem, "turno" | "horarioInicio" | "horarioTermino">[],
+  corteDia?: string,
 ) {
-  const inicios = itens
-    .map((i) => i.horarioInicio)
-    .filter((v): v is string => !!v)
-    .sort();
-  const terminos = itens
-    .map((i) => i.horarioTermino)
-    .filter((v): v is string => !!v)
-    .sort();
+  const inicios = itens.map((i) => i.horarioInicio).filter((v): v is string => !!v);
+  const terminos = itens.map((i) => i.horarioTermino).filter((v): v is string => !!v);
+
+  let horarioInicio: string | undefined;
+  let horarioTermino: string | undefined;
+
+  if (corteDia) {
+    const corteMin = hhmmParaMinutos(corteDia);
+    const iniciosNoite = inicios.filter((h) => hhmmParaMinutos(h) >= corteMin).sort();
+    const terminosMadrugada = terminos.filter((h) => hhmmParaMinutos(h) < corteMin).sort();
+    // Sem nenhum horário no grupo esperado (rotina com corteDia mas sem
+    // atividade de fato atravessando a madrugada) cai de volta no cálculo simples.
+    horarioInicio = iniciosNoite[0] ?? [...inicios].sort()[0];
+    horarioTermino = terminosMadrugada.length
+      ? terminosMadrugada[terminosMadrugada.length - 1]
+      : [...terminos].sort()[terminos.length - 1];
+  } else {
+    horarioInicio = [...inicios].sort()[0];
+    horarioTermino = [...terminos].sort()[terminos.length - 1];
+  }
+
   const turnosSet = new Set<string>();
   for (const i of itens) {
     const t = i.turno ?? turnoDoHorario(i.horarioInicio);
@@ -199,8 +238,8 @@ export function descricaoAgenda(
   const turnosOrd = [...turnosSet].sort((a, b) => (ORDEM_TURNO[a] ?? 9) - (ORDEM_TURNO[b] ?? 9));
   return {
     turnos: turnosOrd,
-    ...(inicios[0] ? { horarioInicio: inicios[0] } : {}),
-    ...(terminos.length ? { horarioTermino: terminos[terminos.length - 1] } : {}),
+    ...(horarioInicio ? { horarioInicio } : {}),
+    ...(horarioTermino ? { horarioTermino } : {}),
   };
 }
 
@@ -220,14 +259,19 @@ function slugify(texto: string) {
  * (sem reordenar manualmente), então sem isso uma atividade nova entraria
  * sempre por último, fora do lugar cronológico. Item sem horário vai para o
  * fim; itens no mesmo horário mantêm a ordem relativa em que foram digitados.
+ *
+ * Com `corteDia` (rotina que atravessa a meia-noite), ordena pelo ciclo do
+ * corte (ver `minutosNoCiclo`) em vez do horário cru — senão um item de
+ * madrugada (ex.: 00:30) apareceria antes do início do turno à noite (ex.:
+ * 23:00), que é quando a rotina realmente começa.
  */
-function ordenarPorHorario(itens: ItemInput[]): ItemInput[] {
+function ordenarPorHorario(itens: ItemInput[], corteDia?: string): ItemInput[] {
   return itens
     .map((it, index) => ({ it, index }))
     .sort((a, b) => {
-      const ha = a.it.horarioInicio || "99:99";
-      const hb = b.it.horarioInicio || "99:99";
-      return ha === hb ? a.index - b.index : ha < hb ? -1 : 1;
+      const ma = a.it.horarioInicio ? minutosNoCiclo(a.it.horarioInicio, corteDia) : Infinity;
+      const mb = b.it.horarioInicio ? minutosNoCiclo(b.it.horarioInicio, corteDia) : Infinity;
+      return ma === mb ? a.index - b.index : ma - mb;
     })
     .map(({ it }) => it);
 }
@@ -317,6 +361,7 @@ async function fetchChecklists(): Promise<Checklist[]> {
         inicio: it.inicio ?? null,
         ...(it.detalhe ? { detalhe: it.detalhe } : {}),
       }));
+      const corteDia = row.corte_dia ? row.corte_dia.slice(0, 5) : undefined;
       return {
         id: row.id,
         nome: row.nome,
@@ -324,8 +369,9 @@ async function fetchChecklists(): Promise<Checklist[]> {
         ativo: row.ativo,
         reabreAutomatico: row.reabre_automatico ?? false,
         ...(row.reabre_intervalo_min ? { reabreIntervaloMin: row.reabre_intervalo_min } : {}),
-        ...descricaoAgenda(itens),
+        ...descricaoAgenda(itens, corteDia),
         ...(row.tempo_limite ? { tempoLimite: row.tempo_limite.slice(0, 5) } : {}),
+        ...(corteDia ? { corteDia } : {}),
         criadoEm: (row.created_at ?? "").slice(0, 10),
         diasPausados: [...(row.dias_pausados ?? [])].sort(),
         itens,
@@ -827,6 +873,7 @@ export function GCheckProvider({ children }: { children: React.ReactNode }) {
         responsavel: input.responsavel,
         ativo: input.ativo,
         tempo_limite: input.tempoLimite ?? null,
+        corte_dia: input.corteDia ?? null,
         reabre_automatico: input.reabreAutomatico,
         reabre_intervalo_min: input.reabreAutomatico ? (input.reabreIntervaloMin ?? null) : null,
         dias_pausados: input.diasPausados,
@@ -834,7 +881,7 @@ export function GCheckProvider({ children }: { children: React.ReactNode }) {
       if (checklistError) throw checklistError;
 
       // Ids dos itens seguem "<id-da-checklist>-<posição>" — todo item nasce "pendente".
-      const itensPayload = ordenarPorHorario(input.itens).map((it, index) => ({
+      const itensPayload = ordenarPorHorario(input.itens, input.corteDia).map((it, index) => ({
         id: `${id}-${index + 1}`,
         checklist_id: id,
         ...camposItemBanco(it),
@@ -878,7 +925,7 @@ export function GCheckProvider({ children }: { children: React.ReactNode }) {
       // ainda existe e não foi usado por outro item nesta mesma edição; caso
       // contrário (item novo, ou id duplicado/inválido) geramos um UUID novo, que
       // sempre nasce "pendente". Isso evita resetar o progresso já feito ao editar.
-      const itensFinal = ordenarPorHorario(input.itens).map((it, index) => {
+      const itensFinal = ordenarPorHorario(input.itens, input.corteDia).map((it, index) => {
         let id = it.id && statusPorId.has(it.id) && !idsUsados.has(it.id) ? it.id : undefined;
         if (!id) id = crypto.randomUUID();
         idsUsados.add(id);
@@ -904,6 +951,7 @@ export function GCheckProvider({ children }: { children: React.ReactNode }) {
           responsavel: input.responsavel,
           ativo: input.ativo,
           tempo_limite: input.tempoLimite ?? null,
+          corte_dia: input.corteDia ?? null,
           reabre_automatico: input.reabreAutomatico,
           reabre_intervalo_min: input.reabreAutomatico ? (input.reabreIntervaloMin ?? null) : null,
           dias_pausados: input.diasPausados,
@@ -1137,6 +1185,28 @@ export function checklistRodaNoDia(c: Checklist, data: Date = new Date()): boole
 }
 
 /**
+ * "Dia operacional" de uma rotina — normalmente é `agora`, mas rotinas com
+ * `corteDia` (turno que atravessa a meia-noite, ex.: 23:00-06:00) ainda
+ * contam como o dia anterior até esse horário passar. Usado para recortar
+ * "as atividades de hoje" sem resetar/travar o turno da madrugada no meio do
+ * expediente — espelha `dia_operacional_checklist` no banco (ver migration
+ * 20260921120000_corte_dia_rotina_noturna.sql).
+ */
+export function diaOperacionalChecklist(
+  c: Pick<Checklist, "corteDia">,
+  agora: Date = new Date(),
+): Date {
+  if (!c.corteDia) return agora;
+  const [h, m] = c.corteDia.split(":").map(Number);
+  const corteMin = (h ?? 0) * 60 + (m ?? 0);
+  const agoraMin = agora.getHours() * 60 + agora.getMinutes();
+  if (agoraMin >= corteMin) return agora;
+  const ontem = new Date(agora);
+  ontem.setDate(ontem.getDate() - 1);
+  return ontem;
+}
+
+/**
  * A rotina já existia nesta data? A recorrência (semanal/quinzenal/mensal) se
  * repete "para sempre" nos dois sentidos do tempo; sem essa checagem o
  * calendário projeta a rotina em dias anteriores à sua criação — dias em que
@@ -1156,6 +1226,24 @@ function minutosDoDia(v: string | Date): number {
     return (h ?? 0) * 60 + (m ?? 0);
   }
   return v.getHours() * 60 + v.getMinutes();
+}
+
+/**
+ * Minutos de `v` num relógio que começa no `corteDia` da rotina, não na
+ * meia-noite — ex.: corte 08:00 → 08:00 vira o minuto 0 do ciclo e 07:59 do
+ * dia seguinte vira o último minuto (1439). Sem `corteDia`, é o mesmo que
+ * `minutosDoDia`. Necessário pra comparar "atrasada"/"não iniciada" numa
+ * rotina cujo horário atravessa a meia-noite (ex.: início 20:00, término
+ * 07:30): comparando os minutos crus, 07:30 (450) pareceria "antes" de 20:00
+ * (1200) e a rotina nasceria "atrasada" assim que o turno começasse à noite.
+ * Com o ciclo baseado no corte, 20:00 vira minuto 720 e 07:30 vira minuto
+ * 1410 — a ordem do turno fica certa.
+ */
+export function minutosNoCiclo(v: string | Date, corteDia?: string): number {
+  const min = minutosDoDia(v);
+  if (!corteDia) return min;
+  const diff = min - minutosDoDia(corteDia);
+  return diff < 0 ? diff + 1440 : diff;
 }
 
 /** Horário limite efetivo da rotina: `tempoLimite` manual ou o último término dos itens. */
@@ -1184,36 +1272,41 @@ export function prazoDoItem(
  * quando ainda pendente, ou "concluida_atrasada" quando foi concluída depois
  * da hora (ainda conta como concluída, só fica marcada). Sem prazo definido
  * (nem no item, nem na rotina), nunca atrasa — só pendente/concluída no prazo.
- * `agora` é injetável para testes.
+ * `agora` é injetável para testes. Compara no ciclo do `corteDia` da rotina
+ * (ver `minutosNoCiclo`) — sem isso, um item de madrugada (ex.: prazo 07:30)
+ * nasceria "atrasado" assim que o turno da noite começasse.
  */
 export type SituacaoItem = "pendente" | "atrasada" | "concluida_no_prazo" | "concluida_atrasada";
 
 export function situacaoItem(
   i: Pick<ChecklistItem, "status" | "horarioInicio" | "horarioTermino" | "concluidoEm">,
-  c: Pick<Checklist, "tempoLimite" | "horarioTermino">,
+  c: Pick<Checklist, "tempoLimite" | "horarioTermino" | "corteDia">,
   agora: Date = new Date(),
 ): SituacaoItem {
   const prazo = prazoDoItem(i, c);
   if (i.status === "concluido") {
     if (!prazo || !i.concluidoEm) return "concluida_no_prazo";
-    return minutosDoDia(new Date(i.concluidoEm)) > minutosDoDia(prazo)
+    return minutosNoCiclo(new Date(i.concluidoEm), c.corteDia) > minutosNoCiclo(prazo, c.corteDia)
       ? "concluida_atrasada"
       : "concluida_no_prazo";
   }
   if (!prazo) return "pendente";
-  return minutosDoDia(agora) > minutosDoDia(prazo) ? "atrasada" : "pendente";
+  return minutosNoCiclo(agora, c.corteDia) > minutosNoCiclo(prazo, c.corteDia) ? "atrasada" : "pendente";
 }
 
 /**
  * Deriva o estado da checklist a partir do progresso — não é um campo salvo no
  * banco. "atrasada": passou do horário limite (tempo_limite manual ou o último
  * término dos itens) e a rotina não terminou. `agora` é injetável para testes.
+ * Compara no ciclo do `corteDia` (ver `minutosNoCiclo`) — sem isso, uma
+ * rotina noturna (ex.: início 20:00, limite 07:30) nasceria "atrasada" assim
+ * que o turno começasse, porque 07:30 cru é "menor" que 20:00.
  */
 export function estado(c: Checklist, agora: Date = new Date()): ChecklistEstado {
   const { feitos, total } = progresso(c);
   if (total > 0 && feitos === total) return "concluido";
   const limite = limiteDaRotina(c);
-  if (limite && minutosDoDia(agora) > minutosDoDia(limite)) return "atrasada";
+  if (limite && minutosNoCiclo(agora, c.corteDia) > minutosNoCiclo(limite, c.corteDia)) return "atrasada";
   if (feitos === 0) return "pendente";
   return "em_andamento";
 }
@@ -1235,7 +1328,7 @@ export function naoIniciada(c: Checklist, agora: Date = new Date()): boolean {
   if (estado(c, agora) !== "pendente") return false;
   // Sem horário de início nos itens não há "janela futura": a rotina já conta.
   if (!c.horarioInicio) return false;
-  return minutosDoDia(agora) < minutosDoDia(c.horarioInicio);
+  return minutosNoCiclo(agora, c.corteDia) < minutosNoCiclo(c.horarioInicio, c.corteDia);
 }
 
 /** Compara o responsável da rotina com o nome de perfil informado (ignora caixa e espaços). */

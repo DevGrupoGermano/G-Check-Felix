@@ -4,20 +4,31 @@ import autoTable, { type RowInput } from "jspdf-autotable";
 import { supabase, type ChecklistExecucaoRow } from "@/lib/supabase";
 import { dataDoIso, isoDoDia } from "@/lib/utils";
 import { itemRodaNoDia } from "@/lib/recorrencia";
-import { checklistPausadaNoDia, limiteDaRotina, type Checklist } from "@/lib/g-check-store";
+import {
+  checklistPausadaNoDia,
+  descricaoAgenda,
+  limiteDaRotina,
+  minutosNoCiclo,
+  type Checklist,
+} from "@/lib/g-check-store";
 
-const ORDEM_TURNO: Record<string, number> = { Manhã: 0, Tarde: 1, Noite: 2 };
-
-/** Turnos + primeiro horário de início a partir dos itens do snapshot. */
-export function agendaDoSnapshot(e: ChecklistExecucaoRow): { turno: string; horario: string } {
-  const inicios = (e.itens ?? [])
-    .map((i) => i.horario_inicio ?? undefined)
-    .filter((v): v is string => !!v)
-    .sort();
-  const turnos = [
-    ...new Set((e.itens ?? []).map((i) => i.turno ?? undefined).filter((v): v is string => !!v)),
-  ].sort((a, b) => (ORDEM_TURNO[a] ?? 9) - (ORDEM_TURNO[b] ?? 9));
-  return { turno: turnos.join(" · "), horario: (inicios[0] ?? "").slice(0, 5) };
+/**
+ * Turnos + horário de início a partir dos itens do snapshot. `corteDia` é o
+ * da rotina viva correspondente (`Checklist.corteDia`) — sem ele, uma rotina
+ * que atravessa a meia-noite mostraria o horário de algum item da madrugada
+ * como se fosse o início do turno. Ver `descricaoAgenda`.
+ */
+export function agendaDoSnapshot(
+  e: ChecklistExecucaoRow,
+  corteDia?: string,
+): { turno: string; horario: string } {
+  const itens = (e.itens ?? []).map((i) => ({
+    turno: i.turno ?? null,
+    horarioInicio: i.horario_inicio ? i.horario_inicio.slice(0, 5) : null,
+    horarioTermino: i.horario_termino ? i.horario_termino.slice(0, 5) : null,
+  }));
+  const agenda = descricaoAgenda(itens, corteDia);
+  return { turno: agenda.turnos.join(" · "), horario: agenda.horarioInicio ?? "" };
 }
 
 export const HISTORICO_QUERY_KEY = ["historico"] as const;
@@ -125,6 +136,9 @@ export function montarHistorico(opts: {
   }
 
   const ativas = checklists.filter((c) => c.ativo);
+  // corteDia por id de rotina — o snapshot (checklist_execucoes) não guarda
+  // isso, só a rotina viva. Ver agendaDoSnapshot.
+  const corteDiaPorChecklist = new Map(checklists.map((c) => [c.id, c.corteDia]));
   const dias: DiaHistorico[] = [];
 
   const cursor = new Date(de.getFullYear(), de.getMonth(), de.getDate());
@@ -140,7 +154,7 @@ export function montarHistorico(opts: {
     } else if (iso < hojeISO) {
       entradas = (exPorDia.get(iso) ?? [])
         .slice()
-        .map((e) => ({ e, agenda: agendaDoSnapshot(e) }))
+        .map((e) => ({ e, agenda: agendaDoSnapshot(e, corteDiaPorChecklist.get(e.checklist_id)) }))
         .sort(
           (a, b) =>
             a.agenda.horario.localeCompare(b.agenda.horario) || a.e.nome.localeCompare(b.e.nome),
@@ -157,7 +171,7 @@ export function montarHistorico(opts: {
         }));
     } else {
       const diaRef = new Date(cursor);
-      const agoraMin = new Date().getHours() * 60 + new Date().getMinutes();
+      const agora = new Date();
       entradas = ativas
         .map((c) => ({
           c,
@@ -176,10 +190,10 @@ export function montarHistorico(opts: {
           const feitos = itensDoDia.filter((i) => i.status === "concluido").length;
           const completo = total > 0 && feitos === total;
           const limiteStr = limiteDaRotina(c);
-          const limite = limiteStr
-            ? Number(limiteStr.slice(0, 2)) * 60 + Number(limiteStr.slice(3, 5))
-            : null;
-          const atrasada = !completo && limite !== null && agoraMin > limite;
+          const atrasada =
+            !completo &&
+            !!limiteStr &&
+            minutosNoCiclo(agora, c.corteDia) > minutosNoCiclo(limiteStr, c.corteDia);
           const status: StatusHistorico =
             iso > hojeISO
               ? "futura"

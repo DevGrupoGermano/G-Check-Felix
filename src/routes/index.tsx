@@ -57,6 +57,7 @@ import {
 import { fetchNomesAdmin, NOMES_ADMIN_QUERY_KEY } from "@/lib/profiles";
 import {
   checklistPausadaNoDia,
+  diaOperacionalChecklist,
   ehResponsavel,
   estado,
   estadoLabel,
@@ -645,10 +646,17 @@ function Dashboard() {
   const hoje = new Date();
   const ativas = checklists.filter((c) => c.ativo);
   const rotinasDeHoje = ativas
-    .map((c) => ({
-      ...c,
-      itens: checklistPausadaNoDia(c, hoje) ? [] : c.itens.filter((i) => itemRodaNoDia(i, hoje)),
-    }))
+    .map((c) => {
+      // Rotina com corteDia (turno que atravessa a meia-noite) ainda conta
+      // como o dia anterior até o corte passar — ver diaOperacionalChecklist.
+      const diaOp = diaOperacionalChecklist(c, hoje);
+      return {
+        ...c,
+        itens: checklistPausadaNoDia(c, diaOp)
+          ? []
+          : c.itens.filter((i) => itemRodaNoDia(i, diaOp)),
+      };
+    })
     .filter((c) => c.itens.length > 0);
   const inativas = checklists.length - ativas.length;
   // Admin (e quem pode consultar as checklists dos demais) vê todas as rotinas

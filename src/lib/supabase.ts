@@ -38,6 +38,9 @@ export interface ChecklistRow {
   reabre_intervalo_min: number | null;
   /** Datas "yyyy-MM-dd" em que a rotina está de folga (não roda, não cobra). */
   dias_pausados: string[];
+  /** "HH:MM:SS" ou null — hora em que o "dia" desta rotina vira, para turnos que
+   *  atravessam a meia-noite (ex.: 23:00-06:00). Null = vira à meia-noite (padrão). */
+  corte_dia: string | null;
   /** Timestamptz de criação (default now()). Marca a partir de quando a rotina existe. */
   created_at: string;
 }
