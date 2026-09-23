@@ -1,6 +1,17 @@
 import * as React from "react";
 import { Link } from "@tanstack/react-router";
-import { History, LayoutDashboard, ListChecks, LogOut, Menu, Store, Users, X } from "lucide-react";
+import {
+  History,
+  LayoutDashboard,
+  ListChecks,
+  Lock,
+  LogOut,
+  Menu,
+  Store,
+  Users,
+  Wallet,
+  X,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth-store";
 
@@ -70,6 +81,25 @@ function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
   );
 }
 
+// Item de navegação bloqueado (feature futura). Só admin enxerga — funcionário
+// nem precisa saber que vai existir um módulo financeiro.
+function FinanceiroLocked() {
+  const { isAdmin } = useAuth();
+  if (!isAdmin) return null;
+
+  return (
+    <div
+      title="Em breve"
+      aria-disabled="true"
+      className="flex cursor-not-allowed items-center gap-3 rounded-lg border border-transparent px-3 py-2.5 text-sm font-medium text-sidebar-foreground/40"
+    >
+      <Wallet className="size-4.5" />
+      Financeiro
+      <Lock className="ml-auto size-3.5" />
+    </div>
+  );
+}
+
 function UserFooter() {
   const { signOut } = useAuth();
 
@@ -81,7 +111,7 @@ function UserFooter() {
   return (
     <button
       onClick={handleSignOut}
-      className="mt-auto flex items-center gap-3 rounded-lg border border-transparent px-3 py-2.5 text-sm font-medium text-sidebar-foreground/75 transition-colors hover:border-[#FFDA24] hover:bg-[#FFDA24]/10 hover:text-[#FFDA24]"
+      className="flex items-center gap-3 rounded-lg border border-transparent px-3 py-2.5 text-sm font-medium text-sidebar-foreground/75 transition-colors hover:border-[#FFDA24] hover:bg-[#FFDA24]/10 hover:text-[#FFDA24]"
     >
       <LogOut className="size-4.5" />
       Sair
@@ -96,6 +126,28 @@ function iniciais(nome?: string | null) {
   if (!primeira) return "?";
   if (partes.length === 1) return primeira.slice(0, 2).toUpperCase();
   return (primeira[0]! + ultima[0]!).toUpperCase();
+}
+
+const WHATSAPP_URL =
+  "https://wa.me/5519997012163?text=" +
+  encodeURIComponent(
+    "Olá, preciso de ajuda com o sistema G-Check do supermercado félix, pode me ajudar?",
+  );
+
+function WhatsAppButton() {
+  return (
+    <a
+      href={WHATSAPP_URL}
+      target="_blank"
+      rel="noopener noreferrer"
+      aria-label="Falar no WhatsApp"
+      className="fixed bottom-5 right-5 z-50 flex size-14 items-center justify-center rounded-full bg-[#25D366] text-white shadow-lg transition-transform hover:scale-105 hover:shadow-xl"
+    >
+      <svg viewBox="0 0 32 32" className="size-7" fill="currentColor" aria-hidden="true">
+        <path d="M16.004 3C9.377 3 4 8.377 4 15.004c0 2.32.646 4.556 1.87 6.51L4 29l7.66-1.84a11.94 11.94 0 0 0 4.344.834h.005c6.627 0 12.004-5.377 12.004-12.004C28.013 8.377 22.636 3 16.004 3Zm0 21.84h-.004a9.9 9.9 0 0 1-5.05-1.383l-.362-.215-3.79.91.897-3.696-.235-.379a9.87 9.87 0 0 1-1.515-5.269c0-5.478 4.457-9.935 9.94-9.935 2.655 0 5.15 1.035 7.026 2.914a9.87 9.87 0 0 1 2.912 7.027c0 5.478-4.457 9.935-9.819 9.935Zm5.44-7.44c-.298-.15-1.764-.87-2.037-.97-.273-.1-.47-.15-.669.15-.198.298-.767.97-.94 1.169-.174.199-.348.224-.646.075-.298-.15-1.258-.464-2.396-1.48-.886-.79-1.484-1.767-1.658-2.065-.174-.298-.019-.46.13-.609.134-.133.298-.348.447-.522.15-.174.199-.298.298-.497.1-.199.05-.373-.025-.522-.075-.15-.669-1.612-.916-2.208-.242-.58-.487-.502-.669-.512l-.57-.01c-.198 0-.522.075-.795.373-.273.298-1.04 1.017-1.04 2.48 0 1.462 1.065 2.876 1.213 3.075.15.199 2.096 3.2 5.078 4.487.71.306 1.263.489 1.694.626.712.226 1.36.194 1.872.118.571-.085 1.764-.72 2.013-1.416.248-.696.248-1.293.174-1.417-.075-.124-.273-.199-.571-.348Z" />
+      </svg>
+    </a>
+  );
 }
 
 function Brand() {
@@ -131,7 +183,10 @@ export function AppShell({
       <aside className="hidden w-64 shrink-0 border-r border-sidebar-border bg-sidebar text-sidebar-foreground lg:sticky lg:top-0 lg:flex lg:h-screen lg:flex-col lg:gap-6 lg:overflow-y-auto lg:p-4">
         <Brand />
         <NavLinks />
-        <UserFooter />
+        <div className="mt-auto flex flex-col gap-1">
+          <FinanceiroLocked />
+          <UserFooter />
+        </div>
       </aside>
 
       {open && (
@@ -149,7 +204,10 @@ export function AppShell({
               </button>
             </div>
             <NavLinks onNavigate={() => setOpen(false)} />
-            <UserFooter />
+            <div className="mt-auto flex flex-col gap-1">
+              <FinanceiroLocked />
+              <UserFooter />
+            </div>
           </div>
         </div>
       )}
@@ -179,6 +237,8 @@ export function AppShell({
           {children}
         </main>
       </div>
+
+      <WhatsAppButton />
     </div>
   );
 }
