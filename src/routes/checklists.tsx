@@ -53,7 +53,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Progress } from "@/components/ui/progress";
 import { Textarea } from "@/components/ui/textarea";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
-import { cn, dataDoIso, isoDoDia } from "@/lib/utils";
+import { cn, dataDoIso, FUSO_LOJA, isoDoDia } from "@/lib/utils";
 import { useAuth } from "@/lib/auth-store";
 import type { ChecklistExecucaoRow } from "@/lib/supabase";
 import { fetchExecucoes, HISTORICO_QUERY_KEY } from "@/lib/historico";
@@ -748,7 +748,11 @@ function EstadoBadge({
  * atrasada — ver `situacaoItem`). O relógio some quando a tarefa está em dia;
  * aparece só pra marcar atraso (pendente vencida ou concluída fora do prazo).
  */
-const fmtHoraConclusao = new Intl.DateTimeFormat("pt-BR", { hour: "2-digit", minute: "2-digit" });
+const fmtHoraConclusao = new Intl.DateTimeFormat("pt-BR", {
+  hour: "2-digit",
+  minute: "2-digit",
+  timeZone: FUSO_LOJA,
+});
 
 function SituacaoItemBadge({
   item,
@@ -1911,7 +1915,13 @@ function ChecklistsPage() {
   // passar — ver diaOperacionalChecklist. Num dia explicitamente escolhido
   // (passado/futuro) o recorte continua sendo o dia calendário mesmo.
   const recortarDia = (c: Checklist): Checklist => {
-    const dataRef = ehHoje ? diaOperacionalChecklist(c, dataAlvo) : dataAlvo;
+    // IMPORTANTE: usa o instante real (`new Date()`), não `dataAlvo` — quando o
+    // dia foi escolhido explicitamente como "hoje" (ex.: botão "Hoje" do
+    // seletor), `dataAlvo` vem de `dataDoIso` e é meia-noite (00:00), não a
+    // hora atual. Passar meia-noite pra `diaOperacionalChecklist` fazia toda
+    // rotina com corteDia parecer "antes do corte" o dia inteiro, prendendo-a
+    // permanentemente no dia anterior mesmo depois do corte já ter passado.
+    const dataRef = ehHoje ? diaOperacionalChecklist(c, new Date()) : dataAlvo;
     return {
       ...c,
       itens: checklistPausadaNoDia(c, dataRef) ? [] : c.itens.filter((i) => itemRodaNoDia(i, dataRef)),

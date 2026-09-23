@@ -8,7 +8,7 @@ import {
   type ChecklistItemRow,
   type ChecklistRow,
 } from "@/lib/supabase";
-import { dataDoIso, isoDoDia } from "@/lib/utils";
+import { dataDoIso, isoDoDia, paraFusoLoja } from "@/lib/utils";
 import { itemRodaNoDia, recorrencias, type Recorrencia } from "@/lib/recorrencia";
 import { useAuth } from "@/lib/auth-store";
 import {
@@ -1199,11 +1199,13 @@ export function diaOperacionalChecklist(
   if (!c.corteDia) return agora;
   const [h, m] = c.corteDia.split(":").map(Number);
   const corteMin = (h ?? 0) * 60 + (m ?? 0);
-  const agoraMin = agora.getHours() * 60 + agora.getMinutes();
+  // Hora "de Brasília", não a do fuso do dispositivo/servidor — ver `paraFusoLoja`.
+  const zonado = paraFusoLoja(agora);
+  const agoraMin = zonado.getUTCHours() * 60 + zonado.getUTCMinutes();
   if (agoraMin >= corteMin) return agora;
-  const ontem = new Date(agora);
-  ontem.setDate(ontem.getDate() - 1);
-  return ontem;
+  // "Ontem" no calendário da loja, como meia-noite local — mesma convenção de
+  // Date usada pro resto do app em datas "de calendário" (ver `dataDoIso`).
+  return new Date(zonado.getUTCFullYear(), zonado.getUTCMonth(), zonado.getUTCDate() - 1);
 }
 
 /**
@@ -1219,13 +1221,19 @@ export function checklistVigenteNoDia(c: Checklist, data: Date): boolean {
 
 export type ChecklistEstado = "concluido" | "em_andamento" | "pendente" | "atrasada";
 
-/** Minutos desde a meia-noite de um "HH:MM" (ou de um Date). */
+/**
+ * Minutos desde a meia-noite de um "HH:MM" (horário de Brasília, digitado como
+ * texto) ou de um Date (instante real — convertido pro horário de Brasília
+ * antes de extrair hora/minuto, senão o resultado muda conforme o fuso do
+ * dispositivo/servidor que está rodando o código — ver `paraFusoLoja`).
+ */
 function minutosDoDia(v: string | Date): number {
   if (typeof v === "string") {
     const [h, m] = v.split(":").map(Number);
     return (h ?? 0) * 60 + (m ?? 0);
   }
-  return v.getHours() * 60 + v.getMinutes();
+  const zonado = paraFusoLoja(v);
+  return zonado.getUTCHours() * 60 + zonado.getUTCMinutes();
 }
 
 /**

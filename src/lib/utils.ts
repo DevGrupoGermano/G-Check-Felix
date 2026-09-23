@@ -5,6 +5,40 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
+/** Fuso da loja — fixo, não depende do fuso do dispositivo/servidor. */
+export const FUSO_LOJA = "America/Sao_Paulo";
+
+/**
+ * Mesmo instante que `data`, mas com os campos UTC iguais ao relógio de parede
+ * no fuso da loja (ex.: 15:17 em Brasília vira `getUTCHours() === 15`). Usado
+ * pra extrair hora/minuto "de Brasília" com `getUTC*()` em vez de `get*()` —
+ * assim o cálculo de prazo/atraso não muda conforme o fuso do navegador ou do
+ * servidor (SSR) que está rodando o código, só o horário real do evento.
+ */
+export function paraFusoLoja(data: Date): Date {
+  const partes = new Intl.DateTimeFormat("en-US", {
+    timeZone: FUSO_LOJA,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  }).formatToParts(data);
+  const val = (tipo: string) => partes.find((p) => p.type === tipo)?.value ?? "0";
+  return new Date(
+    Date.UTC(
+      Number(val("year")),
+      Number(val("month")) - 1,
+      Number(val("day")),
+      Number(val("hour")) % 24, // Intl pode devolver "24" à meia-noite em vez de "00"
+      Number(val("minute")),
+      Number(val("second")),
+    ),
+  );
+}
+
 /** ISO local "yyyy-MM-dd" (sem conversão de fuso) a partir de um Date. */
 export function isoDoDia(date: Date): string {
   const y = date.getFullYear();
