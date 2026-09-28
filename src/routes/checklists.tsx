@@ -40,6 +40,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogClose, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import {
   Command,
   CommandEmpty,
@@ -937,6 +938,9 @@ function AnexosItem({
   const { anexarArquivo, removerAnexo } = useGCheck();
   const [modoCaptura, setModoCaptura] = React.useState<"foto" | "video" | null>(null);
   const [enviando, setEnviando] = React.useState(false);
+  const [fotoAmpliada, setFotoAmpliada] = React.useState<{ url: string; nome: string } | null>(
+    null,
+  );
 
   async function enviarArquivo(arquivo: File) {
     setEnviando(true);
@@ -972,13 +976,16 @@ function AnexosItem({
             return (
               <span key={a.url} className="group relative inline-flex shrink-0">
                 {ehImagem ? (
-                  <a href={a.url} target="_blank" rel="noreferrer">
+                  <button
+                    type="button"
+                    onClick={() => setFotoAmpliada({ url: a.url, nome: a.nome })}
+                  >
                     <img
                       src={a.url}
                       alt={a.nome}
                       className="size-14 rounded-lg border border-border object-cover"
                     />
-                  </a>
+                  </button>
                 ) : (
                   <a
                     href={a.url}
@@ -1087,6 +1094,26 @@ function AnexosItem({
           {faltam > 0 && ` · faltam ${faltam}`}
         </span>
       )}
+
+      <Dialog open={!!fotoAmpliada} onOpenChange={(v) => !v && setFotoAmpliada(null)}>
+        <DialogContent
+          showCloseButton={false}
+          className="max-w-3xl border-none bg-transparent p-0 shadow-none"
+        >
+          <DialogTitle className="sr-only">{fotoAmpliada?.nome ?? "Foto do anexo"}</DialogTitle>
+          {fotoAmpliada && (
+            <img
+              src={fotoAmpliada.url}
+              alt={fotoAmpliada.nome}
+              className="max-h-[85vh] w-full rounded-lg object-contain"
+            />
+          )}
+          <DialogClose className="absolute -right-2 -top-2 rounded-full border border-border bg-background p-1.5 text-foreground shadow-sm hover:opacity-80">
+            <X className="size-4" />
+            <span className="sr-only">Fechar</span>
+          </DialogClose>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
