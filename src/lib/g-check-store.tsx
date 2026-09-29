@@ -297,9 +297,55 @@ function camposItemBanco(it: ItemInput) {
 
 const QUERY_KEY = ["checklists"] as const;
 
-// Vídeo gravado na hora (câmera) pode passar de 100MB fácil — sem teto o
-// upload de uma rede móvel ruim fica "pendurado" sem erro nem sucesso.
-const TAMANHO_MAX_ANEXO_MB = 100;
+/** Caminho do arquivo dentro do bucket a partir da URL pública salva no anexo. */
+function caminhoDoAnexo(url: string): string | null {
+  const marcador = `/object/public/${BUCKET_ANEXOS}/`;
+  const idx = url.indexOf(marcador);
+  if (idx === -1) return null;
+  return decodeURIComponent(url.slice(idx + marcador.length));
+}
+
+/** Apaga os arquivos do Storage correspondentes a uma lista de anexos — best
+ *  effort: erro aqui não deve travar a operação no banco (o cron de limpeza
+ *  cobre qualquer órfão que sobrar). */
+async function removerArquivosDosAnexos(anexos: { url: string }[]): Promise<void> {
+  const caminhos = anexos.map((a) => caminhoDoAnexo(a.url)).filter((c): c is string => c !== null);
+  if (caminhos.length === 0) return;
+  const { error } = await supabase.storage.from(BUCKET_ANEXOS).remove(caminhos);
+  if (error) console.error("Falha ao remover arquivo(s) do Storage:", error.message);
+}
+
+/** Apaga toda a pasta de anexos de uma checklist (best effort, ver acima). */
+async function removerPastaDaChecklist(checklistId: string): Promise<void> {
+  const limite = 1000;
+  let offset = 0;
+  const caminhos: string[] = [];
+  for (;;) {
+    const { data, error } = await supabase.storage
+      .from(BUCKET_ANEXOS)
+      .list(checklistId, { limit: limite, offset });
+    if (error) {
+      console.error("Falha ao listar pasta de anexos da checklist:", error.message);
+      return;
+    }
+    if (!data || data.length === 0) break;
+    for (const arquivo of data) {
+      if (arquivo.id !== null) caminhos.push(`${checklistId}/${arquivo.name}`);
+    }
+    if (data.length < limite) break;
+    offset += limite;
+  }
+  if (caminhos.length === 0) return;
+  const { error } = await supabase.storage.from(BUCKET_ANEXOS).remove(caminhos);
+  if (error) console.error("Falha ao remover pasta de anexos do Storage:", error.message);
+}
+
+// Vídeo gravado na hora (câmera) já sai limitado a ~20MB (ver
+// captura-camera.tsx: DURACAO_MAX_VIDEO_S + VIDEO_BITS_POR_SEGUNDO) — sem
+// teto aqui o upload de uma rede móvel ruim fica "pendurado" sem erro nem
+// sucesso, e um anexo fora do padrão (ex.: PDF grande) não deveria passar
+// disso mesmo assim.
+const TAMANHO_MAX_ANEXO_MB = 20;
 const TIMEOUT_UPLOAD_MS = 120_000;
 
 /** Corre uma promessa contra um prazo — se estourar, rejeita com mensagem
@@ -834,6 +880,7 @@ export function GCheckProvider({ children }: { children: React.ReactNode }) {
         .update({ anexos: proximos })
         .eq("id", itemId);
       if (error) throw error;
+      await removerArquivosDosAnexos([{ url }]);
       return { checklistId, itemId, proximos };
     },
     onSuccess: ({ checklistId, itemId, proximos }) => {
@@ -965,6 +1012,8 @@ export function GCheckProvider({ children }: { children: React.ReactNode }) {
           .delete()
           .in("id", idsRemover);
         if (deleteError) throw deleteError;
+        const anexosRemovidos = idsRemover.flatMap((id) => anexosPorId.get(id) ?? []);
+        await removerArquivosDosAnexos(anexosRemovidos);
       }
 
       const { error: upsertError } = await supabase.from("checklist_items").upsert(itensFinal);
@@ -987,6 +1036,7 @@ export function GCheckProvider({ children }: { children: React.ReactNode }) {
       // checklist remove os itens junto — não precisa deletar itens à mão.
       const { error } = await supabase.from("checklists").delete().eq("id", checklistId);
       if (error) throw error;
+      await removerPastaDaChecklist(checklistId);
     },
     onSuccess: () => toast.success("Checklist excluída."),
     onError: () => {

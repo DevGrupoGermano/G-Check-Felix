@@ -4,8 +4,17 @@ import { Camera, Check, Loader2, RotateCcw, Square, Video, X } from "lucide-reac
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
-/** Grava no máximo 2 minutos por vídeo — evita arquivo enorme sem perceber. */
-const DURACAO_MAX_VIDEO_S = 120;
+/** Grava no máximo 1 minuto por vídeo — evita arquivo enorme sem perceber. */
+const DURACAO_MAX_VIDEO_S = 60;
+
+/** Lado maior de uma foto capturada, em pixels — reduz o tamanho do upload
+ *  sem perda perceptível para documentar um checklist. */
+const FOTO_LADO_MAX_PX = 1600;
+const FOTO_QUALIDADE = 0.7;
+
+/** Teto de bitrate do vídeo gravado — junto com DURACAO_MAX_VIDEO_S mantém o
+ *  arquivo final perto de ~20MB (ver TAMANHO_MAX_ANEXO_MB em g-check-store). */
+const VIDEO_BITS_POR_SEGUNDO = 2_500_000;
 
 type Estado = "abrindo" | "pronta" | "gravando" | "revisando" | "erro";
 
@@ -126,9 +135,12 @@ export function CapturaCameraDialog({
     const video = videoRef.current;
     const canvas = canvasRef.current;
     if (!video || !canvas) return;
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
-    canvas.getContext("2d")?.drawImage(video, 0, 0);
+    const largura = video.videoWidth;
+    const altura = video.videoHeight;
+    const escala = Math.min(1, FOTO_LADO_MAX_PX / Math.max(largura, altura));
+    canvas.width = Math.round(largura * escala);
+    canvas.height = Math.round(altura * escala);
+    canvas.getContext("2d")?.drawImage(video, 0, 0, canvas.width, canvas.height);
     canvas.toBlob(
       (blob) => {
         if (!blob) return;
@@ -140,7 +152,7 @@ export function CapturaCameraDialog({
         setEstado("revisando");
       },
       "image/jpeg",
-      0.9,
+      FOTO_QUALIDADE,
     );
   }
 
@@ -153,7 +165,10 @@ export function CapturaCameraDialog({
       "video/webm;codecs=vp8,opus",
       "video/webm",
     ].find((t) => window.MediaRecorder?.isTypeSupported?.(t));
-    const gravador = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+    const gravador = new MediaRecorder(stream, {
+      ...(mimeType ? { mimeType } : {}),
+      videoBitsPerSecond: VIDEO_BITS_POR_SEGUNDO,
+    });
     pedacosRef.current = [];
     gravador.ondataavailable = (e) => {
       if (e.data.size > 0) pedacosRef.current.push(e.data);
